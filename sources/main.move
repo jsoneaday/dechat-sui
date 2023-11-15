@@ -35,19 +35,19 @@ module dechat_sui::main {
         message: String
     }
 
-    struct RespondedPost has key, store {
+    struct ResponsePost has key, store {
         id: UID,
         timestamp: u64,
         user_name: String,
-        responded_msg_id: UID,
+        response_msg_id: UID,
         message: String
     }
     
-    struct SharedPost has key, store {
+    struct SharePost has key, store {
         id: UID,
         timestamp: u64,
         user_name: String,
-        shared_msg_id: UID,
+        share_msg_id: UID,
         message: String
     }
 
@@ -84,12 +84,12 @@ module dechat_sui::main {
         };
 
         let posts = object_table::new<String, Post>(ctx);
-        let responded_posts = object_table::new<String, RespondedPost>(ctx);
-        let shared_posts = object_table::new<String, SharedPost>(ctx);
+        let response_posts = object_table::new<String, ResponsePost>(ctx);
+        let share_posts = object_table::new<String, SharePost>(ctx);
         
         ofield::add(&mut profile.id, b"posts", posts);
-        ofield::add(&mut profile.id, b"responded_posts", responded_posts);
-        ofield::add(&mut profile.id, b"shared_posts", shared_posts);
+        ofield::add(&mut profile.id, b"response_posts", response_posts);
+        ofield::add(&mut profile.id, b"share_posts", share_posts);
 
         transfer::share_object(profile);
     }
