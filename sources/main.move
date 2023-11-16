@@ -7,10 +7,13 @@ module dechat_sui::main {
     use sui::object_table;
     use sui::object_table::ObjectTable;
     use sui::clock::{Self, Clock};    
-    use std::string::{Self, String};
+    use sui::hex::encode;
+    use std::string::{Self, String, utf8};
     use std::option;
     use std::vector;
     use std::option::Option;
+    use std::debug;
+
 
     struct DechatAdmin has key {
         id: UID
@@ -22,6 +25,19 @@ module dechat_sui::main {
         version: String
     }
 
+    const SUI: vector<u8> = b"sui";
+    const APTOS: vector<u8> = b"aptos";
+    const COSMOS: vector<u8> = b"cosmos";
+    #[allow(unused)]
+    const ARWEAVE: vector<u8> = b"arweave";
+
+    struct SupportingChain has store {
+        sui: bool,
+        aptos: bool,
+        cosmos: bool,
+        arweave: bool
+    }
+
     struct Profile has key, store {
         id: UID,
         address: address,
@@ -30,29 +46,42 @@ module dechat_sui::main {
         description: Option<String>
     }
 
+    /// u64 key represents an index value
+    /// @chain_agnos_uid is for other chains to be able to identify this post,
+    /// it is the stringified UID of the post
     struct Post has key, store {
         id: UID,
         timestamp: u64,
         message: String,
-        response_posts: ObjectTable<u64, ResponsePost>,
-        share_posts: ObjectTable<u64, SharePost>
+        chain_agnos_uid: String
     }
 
+    /// @chain the chain containing the post I am responding to
+    /// @responding_msg_id the stringified version of the post id
     struct ResponsePost has key, store {
         id: UID,
         timestamp: u64,
-        message: String
+        message: String,
+        chain: SupportingChain,
+        responding_msg_id: String
     }
     
+    /// @chain the chain containing the post I am responding to
+    /// @sharing_msg_id the stringified version of the post id
     struct SharePost has key, store {
         id: UID,
         timestamp: u64,
-        message: Option<String>
+        message: Option<String>,
+        chain: SupportingChain,
+        sharing_msg_id: String
     }
 
+    /// u64 key represents an index value
     struct AllPosts has key, store {
         id: UID,
-        posts: ObjectTable<u64, Post>
+        posts: ObjectTable<u64, Post>,
+        response_posts: ObjectTable<u64, ResponsePost>,
+        share_posts: ObjectTable<u64, SharePost>
     }
 
     fun init(ctx: &mut TxContext) {
@@ -64,8 +93,10 @@ module dechat_sui::main {
 
         let all_posts = AllPosts {
             id: object::new(ctx),
-            posts: object_table::new<u64, Post>(ctx)
-        };
+            posts: object_table::new<u64, Post>(ctx),
+            response_posts: object_table::new<u64, ResponsePost>(ctx),
+            share_posts: object_table::new<u64, SharePost>(ctx)
+        };        
         transfer::share_object(all_posts);
     }
 
@@ -76,6 +107,7 @@ module dechat_sui::main {
             timestamp: clock::timestamp_ms(clock),
             version
         };
+        
         transfer::share_object(app_metadata);
     }
 
@@ -103,50 +135,87 @@ module dechat_sui::main {
         let address = tx_context::sender(ctx);
         assert!(address == profile.address, 1);
 
+        let post_id = object::new(ctx);
+        let chain_agnos_uid = get_uid_str(&post_id);
         let post = Post {
-            id: object::new(ctx),
+            id: post_id,
             timestamp,
             message,
-            response_posts: object_table::new<u64, ResponsePost>(ctx),
-            share_posts: object_table::new<u64, SharePost>(ctx)
+            chain_agnos_uid
         };
 
         let posts_length = object_table::length(&all_posts.posts) + 1;
         object_table::add(&mut all_posts.posts, posts_length, post);
     }
 
-    entry fun add_response_post_to_all_posts(clock: &Clock, all_posts: &mut AllPosts, profile: &Profile, parent_post_index: u64, message: String, ctx: &mut TxContext) {
-        assert!(parent_post_index > 0, 1); // cannot be 0 since this is a response to a post
+    /// @chain should be one of the chain constants listed at top of contract
+    entry fun add_response_post_to_all_posts(clock: &Clock, all_posts: &mut AllPosts, profile: &Profile, message: String, chain: String, responding_msg_id: String, ctx: &mut TxContext) {
         let address = tx_context::sender(ctx);
         assert!(address == profile.address, 1);
-
-        let post = object_table::borrow_mut<u64, Post>(&mut all_posts.posts, parent_post_index);
 
         let response_post = ResponsePost {
             id: object::new(ctx),
             timestamp: clock::timestamp_ms(clock),
-            message
+            message,
+            chain: get_supporting_chain(chain),
+            responding_msg_id
         };
 
-        let response_posts_length = object_table::length(&post.response_posts);
-        object_table::add<u64, ResponsePost>(&mut post.response_posts, response_posts_length + 1, response_post);
+        let response_posts_length = object_table::length(&all_posts.response_posts) + 1;
+        object_table::add(&mut all_posts.response_posts, response_posts_length, response_post);
     }
-
-    entry fun add_share_post_to_all_posts(clock: &Clock, all_posts: &mut AllPosts, profile: &Profile, parent_post_index: u64, message: Option<String>, ctx: &mut TxContext) {
-        assert!(parent_post_index > 0, 1); // cannot be 0 since this is a share to a post
+   
+    /// @chain should be one of the chain constants listed at top of contract
+    entry fun add_share_post_to_all_posts(clock: &Clock, all_posts: &mut AllPosts, profile: &Profile, message: Option<String>, chain: String, sharing_msg_id: String, ctx: &mut TxContext) {
         let address = tx_context::sender(ctx);
         assert!(address == profile.address, 1);
-
-        let post = object_table::borrow_mut<u64, Post>(&mut all_posts.posts, parent_post_index);
 
         let share_post = SharePost {
             id: object::new(ctx),
             timestamp: clock::timestamp_ms(clock),
-            message
+            message,
+            chain: get_supporting_chain(chain),
+            sharing_msg_id
         };
 
-        let share_posts_length = object_table::length(&post.share_posts);
-        object_table::add<u64, SharePost>(&mut post.share_posts, share_posts_length + 1, share_post);
+        let share_posts_length = object_table::length(&all_posts.share_posts) + 1;
+        object_table::add(&mut all_posts.share_posts, share_posts_length, share_post);
+    }
+
+    fun get_uid_str(id: &UID): String {
+        utf8(encode(object::uid_to_bytes(id)))
+    }
+
+    fun get_supporting_chain(chain: String): SupportingChain {
+        if (chain == utf8(SUI)) {
+            SupportingChain {
+                sui: true,
+                aptos: false,
+                cosmos: false,
+                arweave: false
+            }
+        } else if (chain == utf8(APTOS)) {
+            SupportingChain {
+                sui: false,
+                aptos: true,
+                cosmos: false,
+                arweave: false
+            }
+        } else if (chain == utf8(COSMOS)) {
+            SupportingChain {
+                sui: false,
+                aptos: false,
+                cosmos: true,
+                arweave: false
+            }
+        } else {
+            SupportingChain {
+                sui: false,
+                aptos: false,
+                cosmos: false,
+                arweave: true
+            }
+        }
     }
     
     #[test]
@@ -172,7 +241,7 @@ module dechat_sui::main {
         {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);
-            let version = std::string::utf8(b"0.0.1");
+            let version = utf8(b"0.0.1");
             let admin = DechatAdmin { id: object::new(ctx) };
 
             create_app_metadata(
@@ -205,8 +274,8 @@ module dechat_sui::main {
 
         test_scenario::next_tx(scenario, profile_owner);
         {
-            let user_name = std::string::utf8(b"dave");
-            let full_name = std::string::utf8(b"David Choi");
+            let user_name = utf8(b"dave");
+            let full_name = utf8(b"David Choi");
             create_profile(user_name, full_name, option::none(), test_scenario::ctx(scenario))
         };
 
@@ -221,8 +290,8 @@ module dechat_sui::main {
         let admin_address = @0xBABE;
         let profile_owner_address = @0xCAFE;
 
-        let user_name = std::string::utf8(b"dave");
-        let full_name = std::string::utf8(b"David Choi");
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
 
         let original_scenario = test_scenario::begin(admin_address);
         let scenario = &mut original_scenario;
@@ -234,7 +303,7 @@ module dechat_sui::main {
         {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);            
-            let message = std::string::utf8(b"");
+            let message = utf8(b"");
             let profile = Profile {
                 id: object::new(ctx),
                 address: profile_owner_address,
@@ -244,7 +313,9 @@ module dechat_sui::main {
             };
             let all_posts = AllPosts {
                 id: object::new(ctx),
-                posts: object_table::new<u64, Post>(ctx)
+                posts: object_table::new<u64, Post>(ctx),
+                response_posts: object_table::new<u64, ResponsePost>(ctx),
+                share_posts: object_table::new<u64, SharePost>(ctx)
             };
                         
             add_post_to_all_posts(&clock, &mut all_posts, &profile, message, ctx);
@@ -258,15 +329,15 @@ module dechat_sui::main {
     }
 
     #[test]
-    fun test_add_response_post_to_all_posts() {
+    fun test_add_response_post_to_all_posts_on_sui_chain() {
         use sui::test_scenario;
         use std::option;
 
         let admin_address = @0xBABE;
         let profile_owner_address = @0xCAFE;
 
-        let user_name = std::string::utf8(b"dave");
-        let full_name = std::string::utf8(b"David Choi");
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
 
         let original_scenario = test_scenario::begin(admin_address);
         let scenario = &mut original_scenario;
@@ -278,7 +349,7 @@ module dechat_sui::main {
         {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);            
-            let message = std::string::utf8(b"");
+            let message = utf8(b"");
             let profile = Profile {
                 id: object::new(ctx),
                 address: profile_owner_address,
@@ -288,22 +359,12 @@ module dechat_sui::main {
             };
             let all_posts = AllPosts {
                 id: object::new(ctx),
-                posts: object_table::new<u64, Post>(ctx)
+                posts: object_table::new<u64, Post>(ctx),
+                response_posts: object_table::new<u64, ResponsePost>(ctx),
+                share_posts: object_table::new<u64, SharePost>(ctx)
             };
-            let post_index = 1;
-            object_table::add(
-                &mut all_posts.posts, 
-                post_index, 
-                Post {
-                    id: object::new(ctx),
-                    timestamp: clock::timestamp_ms(&clock),
-                    message,
-                    response_posts: object_table::new<u64, ResponsePost>(ctx),
-                    share_posts: object_table::new<u64, SharePost>(ctx)
-                }
-            );
                         
-            add_response_post_to_all_posts(&clock, &mut all_posts, &profile, post_index, message, ctx);
+            add_response_post_to_all_posts(&clock, &mut all_posts, &profile, message, utf8(SUI), utf8(b"123"), ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
@@ -314,15 +375,15 @@ module dechat_sui::main {
     }
 
     #[test]
-    fun test_add_share_post_to_all_posts() {
+    fun test_add_share_post_to_all_posts_on_sui_chain() {
         use sui::test_scenario;
         use std::option;
 
         let admin_address = @0xBABE;
         let profile_owner_address = @0xCAFE;
 
-        let user_name = std::string::utf8(b"dave");
-        let full_name = std::string::utf8(b"David Choi");
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
 
         let original_scenario = test_scenario::begin(admin_address);
         let scenario = &mut original_scenario;
@@ -334,7 +395,7 @@ module dechat_sui::main {
         {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);            
-            let message = std::string::utf8(b"");
+            let message = utf8(b"");
             let profile = Profile {
                 id: object::new(ctx),
                 address: profile_owner_address,
@@ -344,22 +405,12 @@ module dechat_sui::main {
             };
             let all_posts = AllPosts {
                 id: object::new(ctx),
-                posts: object_table::new<u64, Post>(ctx)
+                posts: object_table::new<u64, Post>(ctx),
+                response_posts: object_table::new<u64, ResponsePost>(ctx),
+                share_posts: object_table::new<u64, SharePost>(ctx)
             };
-            let post_index = 1;
-            object_table::add(
-                &mut all_posts.posts, 
-                post_index, 
-                Post {
-                    id: object::new(ctx),
-                    timestamp: clock::timestamp_ms(&clock),
-                    message,
-                    response_posts: object_table::new<u64, ResponsePost>(ctx),
-                    share_posts: object_table::new<u64, SharePost>(ctx)
-                }
-            );
                         
-            add_share_post_to_all_posts(&clock, &mut all_posts, &profile, post_index, option::some(message), ctx);
+            add_share_post_to_all_posts(&clock, &mut all_posts, &profile, option::some(message), utf8(SUI), utf8(b"123"), ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
