@@ -131,6 +131,23 @@ module dechat_sui::main {
         let response_posts_length = object_table::length(&post.response_posts);
         object_table::add<u64, ResponsePost>(&mut post.response_posts, response_posts_length + 1, response_post);
     }
+
+    entry fun add_share_post_to_all_posts(clock: &Clock, all_posts: &mut AllPosts, profile: &Profile, parent_post_index: u64, message: Option<String>, ctx: &mut TxContext) {
+        assert!(parent_post_index > 0, 1); // cannot be 0 since this is a share to a post
+        let address = tx_context::sender(ctx);
+        assert!(address == profile.address, 1);
+
+        let post = object_table::borrow_mut<u64, Post>(&mut all_posts.posts, parent_post_index);
+
+        let share_post = SharePost {
+            id: object::new(ctx),
+            timestamp: clock::timestamp_ms(clock),
+            message
+        };
+
+        let share_posts_length = object_table::length(&post.share_posts);
+        object_table::add<u64, SharePost>(&mut post.share_posts, share_posts_length + 1, share_post);
+    }
     
     #[test]
     fun test_init() {        
@@ -230,7 +247,7 @@ module dechat_sui::main {
                 posts: object_table::new<u64, Post>(ctx)
             };
                         
-            add_post_to_all_posts(&clock, &mut all_posts, &mut profile, message, ctx);
+            add_post_to_all_posts(&clock, &mut all_posts, &profile, message, ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
@@ -287,6 +304,62 @@ module dechat_sui::main {
             );
                         
             add_response_post_to_all_posts(&clock, &mut all_posts, &profile, post_index, message, ctx);
+
+            clock::destroy_for_testing(clock);
+            transfer::transfer(profile, profile_owner_address);
+            transfer::share_object(all_posts);
+        };
+
+        test_scenario::end(original_scenario);
+    }
+
+    #[test]
+    fun test_add_share_post_to_all_posts() {
+        use sui::test_scenario;
+        use std::option;
+
+        let admin_address = @0xBABE;
+        let profile_owner_address = @0xCAFE;
+
+        let user_name = std::string::utf8(b"dave");
+        let full_name = std::string::utf8(b"David Choi");
+
+        let original_scenario = test_scenario::begin(admin_address);
+        let scenario = &mut original_scenario;
+        {
+            init(test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, profile_owner_address);
+        {
+            let ctx = test_scenario::ctx(scenario);
+            let clock = clock::create_for_testing(ctx);            
+            let message = std::string::utf8(b"");
+            let profile = Profile {
+                id: object::new(ctx),
+                address: profile_owner_address,
+                user_name,
+                full_name,
+                description: option::none()
+            };
+            let all_posts = AllPosts {
+                id: object::new(ctx),
+                posts: object_table::new<u64, Post>(ctx)
+            };
+            let post_index = 1;
+            object_table::add(
+                &mut all_posts.posts, 
+                post_index, 
+                Post {
+                    id: object::new(ctx),
+                    timestamp: clock::timestamp_ms(&clock),
+                    message,
+                    response_posts: object_table::new<u64, ResponsePost>(ctx),
+                    share_posts: object_table::new<u64, SharePost>(ctx)
+                }
+            );
+                        
+            add_share_post_to_all_posts(&clock, &mut all_posts, &profile, post_index, option::some(message), ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
