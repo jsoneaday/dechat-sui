@@ -3,7 +3,6 @@ module dechat_sui::main {
     use sui::object::{Self, UID};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
-    use sui::dynamic_object_field as ofield;
     use sui::object_table;
     use sui::object_table::ObjectTable;
     use sui::clock::{Self, Clock};    
@@ -14,6 +13,7 @@ module dechat_sui::main {
     use std::option::Option;
     use std::debug;
 
+    struct MAIN has drop {}
 
     struct DechatAdmin has key {
         id: UID
@@ -84,7 +84,8 @@ module dechat_sui::main {
         share_posts: ObjectTable<u64, SharePost>
     }
 
-    fun init(ctx: &mut TxContext) {
+    fun init(main: MAIN, ctx: &mut TxContext) {
+        assert!(sui::types::is_one_time_witness(&main), 1);
         // todo: needs code to make sure only certain addresses can init
         let admin = DechatAdmin {
             id: object::new(ctx)
@@ -222,7 +223,7 @@ module dechat_sui::main {
     fun test_init() {        
         let ctx = tx_context::dummy();
 
-        init(&mut ctx);
+        init(MAIN{}, &mut ctx);
     }
 
     #[test]
@@ -234,7 +235,7 @@ module dechat_sui::main {
         let original_scenario = test_scenario::begin(admin_address);
         let scenario = &mut original_scenario;
         {
-            init(test_scenario::ctx(scenario));
+            init(MAIN{}, test_scenario::ctx(scenario));
         };
 
         test_scenario::next_tx(scenario, admin_address);
@@ -269,7 +270,7 @@ module dechat_sui::main {
         let original_scenario = test_scenario::begin(admin);
         let scenario = &mut original_scenario;
         {
-            init(test_scenario::ctx(scenario));
+            init(MAIN{}, test_scenario::ctx(scenario));
         };
 
         test_scenario::next_tx(scenario, profile_owner);
@@ -296,7 +297,7 @@ module dechat_sui::main {
         let original_scenario = test_scenario::begin(admin_address);
         let scenario = &mut original_scenario;
         {
-            init(test_scenario::ctx(scenario));
+            init(MAIN{}, test_scenario::ctx(scenario));
         };
 
         test_scenario::next_tx(scenario, profile_owner_address);
@@ -342,7 +343,7 @@ module dechat_sui::main {
         let original_scenario = test_scenario::begin(admin_address);
         let scenario = &mut original_scenario;
         {
-            init(test_scenario::ctx(scenario));
+            init(MAIN{}, test_scenario::ctx(scenario));
         };
 
         test_scenario::next_tx(scenario, profile_owner_address);
@@ -388,7 +389,7 @@ module dechat_sui::main {
         let original_scenario = test_scenario::begin(admin_address);
         let scenario = &mut original_scenario;
         {
-            init(test_scenario::ctx(scenario));
+            init(MAIN{}, test_scenario::ctx(scenario));
         };
 
         test_scenario::next_tx(scenario, profile_owner_address);
