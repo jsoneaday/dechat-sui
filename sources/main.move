@@ -31,7 +31,7 @@ module dechat_sui::main {
     #[allow(unused)]
     const ARWEAVE: vector<u8> = b"arweave";
 
-    struct SupportingChain has store {
+    struct ExternalChain has store {
         sui: bool,
         aptos: bool,
         cosmos: bool,
@@ -47,41 +47,60 @@ module dechat_sui::main {
     }
 
     /// u64 key represents an index value
-    /// @chain_agnos_uid is for other chains to be able to identify this post,
-    /// it is the stringified UID of the post
     struct Post has key, store {
         id: UID,
         timestamp: u64,
         message: String,
-        chain_agnos_uid: String
+        response_posts: ObjectTable<u64, ResponsePost>,
+        share_posts: ObjectTable<u64, SharePost>
     }
 
-    /// @chain the chain containing the post I am responding to
-    /// @responding_msg_id the stringified version of the post id
+    /// On-chain response post object
     struct ResponsePost has key, store {
         id: UID,
         timestamp: u64,
+        message: String
+    }
+
+    /// Response Post to external off-chain Posts
+    struct ExtResponsePost has key, store {
+        id: UID,
+        timestamp: u64,
         message: String,
-        chain: SupportingChain,
+        chain: ExternalChain,
         responding_msg_id: String
     }
     
-    /// @chain the chain containing the post I am responding to
-    /// @sharing_msg_id the stringified version of the post id
+    /// On-chain post sharing object
     struct SharePost has key, store {
         id: UID,
         timestamp: u64,
+        message: Option<String>
+    }
+
+    /// Share Post to external off-chain Posts
+    struct ExtSharePost has key, store {
+        id: UID,
+        timestamp: u64,
         message: Option<String>,
-        chain: SupportingChain,
+        chain: ExternalChain,
         sharing_msg_id: String
     }
 
     /// u64 key represents an index value
     struct AllPosts has key, store {
         id: UID,
-        posts: ObjectTable<u64, Post>,
-        response_posts: ObjectTable<u64, ResponsePost>,
-        share_posts: ObjectTable<u64, SharePost>
+        posts: ObjectTable<u64, Post>
+    }
+
+    struct AllExtResponsePosts has key, store {
+        id: UID,
+        posts: ObjectTable<u64, ExtResponsePost>
+    }
+
+    struct AllExtSharePosts has key, store {
+        id: UID,
+        posts: ObjectTable<u64, ExtSharePost>
     }
 
     fun init(main: MAIN, ctx: &mut TxContext) {
@@ -94,11 +113,21 @@ module dechat_sui::main {
 
         let all_posts = AllPosts {
             id: object::new(ctx),
-            posts: object_table::new<u64, Post>(ctx),
-            response_posts: object_table::new<u64, ResponsePost>(ctx),
-            share_posts: object_table::new<u64, SharePost>(ctx)
-        };        
+            posts: object_table::new<u64, Post>(ctx)
+        };
         transfer::share_object(all_posts);
+
+        let ext_all_response_posts = AllExtResponsePosts {
+            id: object::new(ctx),
+            posts: object_table::new<u64, ExtResponsePost>(ctx)
+        };
+        transfer::share_object(ext_all_response_posts);
+
+        let ext_all_share_posts = AllExtSharePosts {
+            id: object::new(ctx),
+            posts: object_table::new<u64, ExtSharePost>(ctx)
+        };
+        transfer::share_object(ext_all_share_posts);
     }
 
     /// admin is passed but not checked since it could only have been passed in by original caller of init
@@ -131,18 +160,24 @@ module dechat_sui::main {
         transfer::share_object(profile);
     }
  
-    entry fun add_post_to_all_posts(clock: &Clock, all_posts: &mut AllPosts, profile: &Profile, message: String, ctx: &mut TxContext) {
+    entry fun add_post_to_all_posts(
+        clock: &Clock, 
+        all_posts: &mut AllPosts, 
+        profile: &Profile, 
+        message: String, 
+        ctx: &mut TxContext
+    ) {
         let timestamp = clock::timestamp_ms(clock);
         let address = tx_context::sender(ctx);
         assert!(address == profile.address, 1);
 
         let post_id = object::new(ctx);
-        let chain_agnos_uid = get_uid_str(&post_id);
         let post = Post {
             id: post_id,
             timestamp,
             message,
-            chain_agnos_uid
+            response_posts: object_table::new<u64, ResponsePost>(ctx),
+            share_posts: object_table::new<u64, SharePost>(ctx),
         };
 
         let posts_length = object_table::length(&all_posts.posts) + 1;
@@ -150,67 +185,72 @@ module dechat_sui::main {
     }
 
     /// @chain should be one of the chain constants listed at top of contract
-    entry fun add_response_post_to_all_posts(clock: &Clock, all_posts: &mut AllPosts, profile: &Profile, message: String, chain: String, responding_msg_id: String, ctx: &mut TxContext) {
+    entry fun add_response_post_to_post(
+        clock: &Clock, 
+        post: &mut Post, 
+        profile: &Profile, 
+        message: String,
+        ctx: &mut TxContext
+    ) {
         let address = tx_context::sender(ctx);
         assert!(address == profile.address, 1);
 
         let response_post = ResponsePost {
             id: object::new(ctx),
             timestamp: clock::timestamp_ms(clock),
-            message,
-            chain: get_supporting_chain(chain),
-            responding_msg_id
+            message
         };
 
-        let response_posts_length = object_table::length(&all_posts.response_posts) + 1;
-        object_table::add(&mut all_posts.response_posts, response_posts_length, response_post);
+        let response_posts_length = object_table::length(&post.response_posts) + 1;
+        object_table::add(&mut post.response_posts, response_posts_length, response_post);
     }
    
     /// @chain should be one of the chain constants listed at top of contract
-    entry fun add_share_post_to_all_posts(clock: &Clock, all_posts: &mut AllPosts, profile: &Profile, message: Option<String>, chain: String, sharing_msg_id: String, ctx: &mut TxContext) {
+    entry fun add_share_post_to_post(
+        clock: &Clock, 
+        post: &mut Post, 
+        profile: &Profile, 
+        message: Option<String>,
+        ctx: &mut TxContext
+    ) {
         let address = tx_context::sender(ctx);
         assert!(address == profile.address, 1);
 
         let share_post = SharePost {
             id: object::new(ctx),
             timestamp: clock::timestamp_ms(clock),
-            message,
-            chain: get_supporting_chain(chain),
-            sharing_msg_id
+            message
         };
 
-        let share_posts_length = object_table::length(&all_posts.share_posts) + 1;
-        object_table::add(&mut all_posts.share_posts, share_posts_length, share_post);
+        let share_posts_length = object_table::length(&post.share_posts) + 1;
+        object_table::add(&mut post.share_posts, share_posts_length, share_post);
     }
 
-    fun get_uid_str(id: &UID): String {
-        utf8(encode(object::uid_to_bytes(id)))
-    }
-
-    fun get_supporting_chain(chain: String): SupportingChain {
+    #[allow(unused)]
+    fun get_supporting_chain(chain: String): ExternalChain {
         if (chain == utf8(SUI)) {
-            SupportingChain {
+            ExternalChain {
                 sui: true,
                 aptos: false,
                 cosmos: false,
                 arweave: false
             }
         } else if (chain == utf8(APTOS)) {
-            SupportingChain {
+            ExternalChain {
                 sui: false,
                 aptos: true,
                 cosmos: false,
                 arweave: false
             }
         } else if (chain == utf8(COSMOS)) {
-            SupportingChain {
+            ExternalChain {
                 sui: false,
                 aptos: false,
                 cosmos: true,
                 arweave: false
             }
         } else {
-            SupportingChain {
+            ExternalChain {
                 sui: false,
                 aptos: false,
                 cosmos: false,
@@ -314,9 +354,7 @@ module dechat_sui::main {
             };
             let all_posts = AllPosts {
                 id: object::new(ctx),
-                posts: object_table::new<u64, Post>(ctx),
-                response_posts: object_table::new<u64, ResponsePost>(ctx),
-                share_posts: object_table::new<u64, SharePost>(ctx)
+                posts: object_table::new<u64, Post>(ctx)
             };
                         
             add_post_to_all_posts(&clock, &mut all_posts, &profile, message, ctx);
@@ -330,7 +368,7 @@ module dechat_sui::main {
     }
 
     #[test]
-    fun test_add_response_post_to_all_posts_on_sui_chain() {
+    fun test_add_response_post_to_post() {
         use sui::test_scenario;
         use std::option;
 
@@ -358,25 +396,26 @@ module dechat_sui::main {
                 full_name,
                 description: option::none()
             };
-            let all_posts = AllPosts {
+            let post = Post {
                 id: object::new(ctx),
-                posts: object_table::new<u64, Post>(ctx),
+                timestamp: clock::timestamp_ms(&clock),
+                message,
                 response_posts: object_table::new<u64, ResponsePost>(ctx),
-                share_posts: object_table::new<u64, SharePost>(ctx)
+                share_posts: object_table::new<u64, SharePost>(ctx),
             };
                         
-            add_response_post_to_all_posts(&clock, &mut all_posts, &profile, message, utf8(SUI), utf8(b"123"), ctx);
+            add_response_post_to_post(&clock, &mut post, &profile, message, ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
-            transfer::share_object(all_posts);
+            transfer::transfer(post, profile_owner_address);
         };
 
         test_scenario::end(original_scenario);
     }
 
     #[test]
-    fun test_add_share_post_to_all_posts_on_sui_chain() {
+    fun test_add_share_post_to_post() {
         use sui::test_scenario;
         use std::option;
 
@@ -404,18 +443,19 @@ module dechat_sui::main {
                 full_name,
                 description: option::none()
             };
-            let all_posts = AllPosts {
+            let post = Post {
                 id: object::new(ctx),
-                posts: object_table::new<u64, Post>(ctx),
+                timestamp: clock::timestamp_ms(&clock),
+                message,
                 response_posts: object_table::new<u64, ResponsePost>(ctx),
-                share_posts: object_table::new<u64, SharePost>(ctx)
+                share_posts: object_table::new<u64, SharePost>(ctx),
             };
                         
-            add_share_post_to_all_posts(&clock, &mut all_posts, &profile, option::some(message), utf8(SUI), utf8(b"123"), ctx);
+            add_share_post_to_post(&clock, &mut post, &profile, option::some(message), ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
-            transfer::share_object(all_posts);
+            transfer::transfer(post, profile_owner_address);
         };
 
         test_scenario::end(original_scenario);
