@@ -184,7 +184,6 @@ module dechat_sui::main {
         object_table::add(&mut all_posts.posts, posts_length, post);
     }
 
-    /// @chain should be one of the chain constants listed at top of contract
     entry fun add_response_post_to_post(
         clock: &Clock, 
         post: &mut Post, 
@@ -203,6 +202,31 @@ module dechat_sui::main {
 
         let response_posts_length = object_table::length(&post.response_posts) + 1;
         object_table::add(&mut post.response_posts, response_posts_length, response_post);
+    }
+
+    entry fun add_ext_response_post_to_all_ext_response_post(
+        clock: &Clock, 
+        all_ext_response_posts: &mut AllExtResponsePosts, 
+        profile: &Profile, 
+        message: String,
+        responding_msg_id: String,
+        chain: String,
+        ctx: &mut TxContext
+    ) {
+        let address = tx_context::sender(ctx);
+        assert!(address == profile.address, 1);
+
+        let chain = get_supporting_chain(chain);
+        let response_post = ExtResponsePost {
+            id: object::new(ctx),
+            timestamp: clock::timestamp_ms(clock),
+            message,
+            chain,
+            responding_msg_id
+        };
+
+        let response_posts_length = object_table::length(&all_ext_response_posts.posts) + 1;
+        object_table::add(&mut all_ext_response_posts.posts, response_posts_length, response_post);
     }
    
     /// @chain should be one of the chain constants listed at top of contract
@@ -224,6 +248,31 @@ module dechat_sui::main {
 
         let share_posts_length = object_table::length(&post.share_posts) + 1;
         object_table::add(&mut post.share_posts, share_posts_length, share_post);
+    }
+
+    entry fun add_ext_share_post_to_all_ext_share_post(
+        clock: &Clock, 
+        all_ext_share_posts: &mut AllExtSharePosts, 
+        profile: &Profile, 
+        message: Option<String>,
+        sharing_msg_id: String,
+        chain: String,
+        ctx: &mut TxContext
+    ) {
+        let address = tx_context::sender(ctx);
+        assert!(address == profile.address, 1);
+
+        let chain = get_supporting_chain(chain);
+        let share_post = ExtSharePost {
+            id: object::new(ctx),
+            timestamp: clock::timestamp_ms(clock),
+            message,
+            chain,
+            sharing_msg_id
+        };
+
+        let share_posts_length = object_table::length(&all_ext_share_posts.posts) + 1;
+        object_table::add(&mut all_ext_share_posts.posts, share_posts_length, share_post);
     }
 
     #[allow(unused)]
@@ -415,6 +464,58 @@ module dechat_sui::main {
     }
 
     #[test]
+    fun test_add_ext_response_post_to_all_ext_response_post() {
+        use sui::test_scenario;
+        use std::option;
+
+        let admin_address = @0xBABE;
+        let profile_owner_address = @0xCAFE;
+
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
+
+        let original_scenario = test_scenario::begin(admin_address);
+        let scenario = &mut original_scenario;
+        {
+            init(MAIN{}, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, profile_owner_address);
+        {
+            let ctx = test_scenario::ctx(scenario);
+            let clock = clock::create_for_testing(ctx);            
+            let message = utf8(b"");
+            let profile = Profile {
+                id: object::new(ctx),
+                address: profile_owner_address,
+                user_name,
+                full_name,
+                description: option::none()
+            };
+            let all_ext_response_posts = AllExtResponsePosts {
+                id: object::new(ctx),
+                posts: object_table::new<u64, ExtResponsePost>(ctx)
+            };
+                        
+            add_ext_response_post_to_all_ext_response_post(
+                &clock, 
+                &mut all_ext_response_posts, 
+                &profile, 
+                message, 
+                utf8(b"123"),
+                utf8(APTOS),
+                ctx
+            );
+
+            clock::destroy_for_testing(clock);
+            transfer::transfer(profile, profile_owner_address);
+            transfer::share_object(all_ext_response_posts);
+        };
+
+        test_scenario::end(original_scenario);
+    }
+
+    #[test]
     fun test_add_share_post_to_post() {
         use sui::test_scenario;
         use std::option;
@@ -456,6 +557,58 @@ module dechat_sui::main {
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
             transfer::transfer(post, profile_owner_address);
+        };
+
+        test_scenario::end(original_scenario);
+    }
+
+    #[test]
+    fun test_add_ext_share_post_to_all_ext_share_post() {
+        use sui::test_scenario;
+        use std::option;
+
+        let admin_address = @0xBABE;
+        let profile_owner_address = @0xCAFE;
+
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
+
+        let original_scenario = test_scenario::begin(admin_address);
+        let scenario = &mut original_scenario;
+        {
+            init(MAIN{}, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, profile_owner_address);
+        {
+            let ctx = test_scenario::ctx(scenario);
+            let clock = clock::create_for_testing(ctx);            
+            let message = option::some(utf8(b""));
+            let profile = Profile {
+                id: object::new(ctx),
+                address: profile_owner_address,
+                user_name,
+                full_name,
+                description: option::none()
+            };
+            let all_ext_share_posts = AllExtSharePosts {
+                id: object::new(ctx),
+                posts: object_table::new<u64, ExtSharePost>(ctx)
+            };
+                        
+            add_ext_share_post_to_all_ext_share_post(
+                &clock, 
+                &mut all_ext_share_posts, 
+                &profile, 
+                message, 
+                utf8(b"123"),
+                utf8(APTOS),
+                ctx
+            );
+
+            clock::destroy_for_testing(clock);
+            transfer::transfer(profile, profile_owner_address);
+            transfer::share_object(all_ext_share_posts);
         };
 
         test_scenario::end(original_scenario);
