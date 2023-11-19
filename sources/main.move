@@ -38,53 +38,125 @@ module dechat_sui::main {
         arweave: bool
     }
 
+    struct Categorization has key, store {
+        id: UID,
+        normal: bool,        
+        lie: bool,
+        misleading: bool,        
+        nudity: bool,
+        sexual_content: bool,
+        violence: bool,
+        otherwise_offensive: bool,
+    }
+
+    /// color hex value
+    struct ProfileFlag has store {
+        color: String
+    }
+
     struct Profile has key, store {
         id: UID,
-        address: address,
+        owner: address,
         user_name: String,
         full_name: String,
-        description: Option<String>
+        description: Option<String>,
+        profile_flag: ProfileFlag
     }
 
     /// u64 key represents an index value
     struct Post has key, store {
         id: UID,
+        owner: address,
         timestamp: u64,
         message: String,
         response_posts: ObjectTable<u64, ResponsePost>,
-        share_posts: ObjectTable<u64, SharePost>
+        share_posts: ObjectTable<u64, SharePost>,
+        likes: ObjectTable<u64, Like>,
+        dislikes: ObjectTable<u64, DisLike>,
+        categorization: ObjectTable<u64, Categorization>
     }
 
     /// On-chain response post object
     struct ResponsePost has key, store {
         id: UID,
+        owner: address,
         timestamp: u64,
-        message: String
+        message: String,
+        likes: ObjectTable<u64, Like>,
+        dislikes: ObjectTable<u64, DisLike>,
+        categorization: ObjectTable<u64, Categorization>
     }
 
-    /// Response Post to external off-chain Posts
+    /// Post that responds to a post on an external chain
+    /// owner stringified external address
+    /// responding_msg_id stringified external data id or address
     struct ExtResponsePost has key, store {
         id: UID,
+        owner: address,
         timestamp: u64,
         message: String,
         chain: ExternalChain,
-        responding_msg_id: String
+        responding_msg_id: String,
+        likes: ObjectTable<u64, Like>,
+        dislikes: ObjectTable<u64, DisLike>,
+        categorization: ObjectTable<u64, Categorization>
     }
     
     /// On-chain post sharing object
     struct SharePost has key, store {
         id: UID,
+        owner: address,
         timestamp: u64,
-        message: Option<String>
+        message: Option<String>,
+        likes: ObjectTable<u64, Like>,
+        dislikes: ObjectTable<u64, DisLike>,
+        categorization: ObjectTable<u64, Categorization>
     }
 
-    /// Share Post to external off-chain Posts
+    /// Share Post to external foreign chain Posts
+    /// owner stringified external address
+    /// sharing_msg_id stringified external data id or address
     struct ExtSharePost has key, store {
         id: UID,
+        owner: address,
         timestamp: u64,
         message: Option<String>,
         chain: ExternalChain,
-        sharing_msg_id: String
+        sharing_msg_id: String,
+        likes: ObjectTable<u64, Like>,
+        dislikes: ObjectTable<u64, DisLike>,
+        categorization: ObjectTable<u64, Categorization>
+    }
+
+    /// likes on sui chain
+    struct Like has key, store {
+        id: UID,
+        liker: address
+    }
+
+    /// dislikes on sui chain
+    struct DisLike has key, store {
+        id: UID,
+        disliker: address
+    }
+
+    /// likes on foreign chain
+    /// liker can be id or address
+    /// target asset or address being liked
+    struct ExtLike has key, store {
+        id: UID,
+        timestamp: u64,
+        chain: ExternalChain,
+        liker: String,
+        target: String
+    }
+
+    struct ExtDisLike has key, store {
+        id: UID,
+        timestamp: u64,
+        chain: ExternalChain,
+        disliker: String,
+        target: String
     }
 
     /// u64 key represents an index value
@@ -101,6 +173,16 @@ module dechat_sui::main {
     struct AllExtSharePosts has key, store {
         id: UID,
         posts: ObjectTable<u64, ExtSharePost>
+    }
+
+    struct AllExtLikes has key, store {
+        id: UID,
+        likes: ObjectTable<u64, ExtLike>
+    }
+
+    struct AllExtDisLikes has key, store {
+        id: UID,
+        dislikes: ObjectTable<u64, ExtDisLike>
     }
 
     fun init(main: MAIN, ctx: &mut TxContext) {
@@ -147,14 +229,17 @@ module dechat_sui::main {
         description: Option<String>,
         ctx: &mut TxContext
     ) {
-        let address = tx_context::sender(ctx);
+        let owner = tx_context::sender(ctx);
 
         let profile = Profile {
             id: object::new(ctx),
-            address,
+            owner,
             user_name,
             full_name,
-            description
+            description,
+            profile_flag: ProfileFlag {
+                color: utf8(b"#ffffff")
+            }
         };
 
         transfer::share_object(profile);
@@ -169,15 +254,19 @@ module dechat_sui::main {
     ) {
         let timestamp = clock::timestamp_ms(clock);
         let address = tx_context::sender(ctx);
-        assert!(address == profile.address, 1);
+        assert!(address == profile.owner, 1);
 
         let post_id = object::new(ctx);
         let post = Post {
             id: post_id,
+            owner: address,
             timestamp,
             message,
             response_posts: object_table::new<u64, ResponsePost>(ctx),
             share_posts: object_table::new<u64, SharePost>(ctx),
+            likes: object_table::new<u64, Like>(ctx),
+            dislikes: object_table::new<u64, DisLike>(ctx),
+            categorization: object_table::new<u64, Categorization>(ctx)
         };
 
         let posts_length = object_table::length(&all_posts.posts) + 1;
@@ -192,12 +281,16 @@ module dechat_sui::main {
         ctx: &mut TxContext
     ) {
         let address = tx_context::sender(ctx);
-        assert!(address == profile.address, 1);
+        assert!(address == profile.owner, 1);
 
         let response_post = ResponsePost {
             id: object::new(ctx),
+            owner: address,
             timestamp: clock::timestamp_ms(clock),
-            message
+            message,
+            likes: object_table::new<u64, Like>(ctx),
+            dislikes: object_table::new<u64, DisLike>(ctx),
+            categorization: object_table::new<u64, Categorization>(ctx)
         };
 
         let response_posts_length = object_table::length(&post.response_posts) + 1;
@@ -214,15 +307,19 @@ module dechat_sui::main {
         ctx: &mut TxContext
     ) {
         let address = tx_context::sender(ctx);
-        assert!(address == profile.address, 1);
+        assert!(address == profile.owner, 1);
 
         let chain = get_supporting_chain(chain);
         let response_post = ExtResponsePost {
             id: object::new(ctx),
+            owner: address,
             timestamp: clock::timestamp_ms(clock),
             message,
             chain,
-            responding_msg_id
+            responding_msg_id,
+            likes: object_table::new<u64, Like>(ctx),
+            dislikes: object_table::new<u64, DisLike>(ctx),
+            categorization: object_table::new<u64, Categorization>(ctx)
         };
 
         let response_posts_length = object_table::length(&all_ext_response_posts.posts) + 1;
@@ -238,12 +335,16 @@ module dechat_sui::main {
         ctx: &mut TxContext
     ) {
         let address = tx_context::sender(ctx);
-        assert!(address == profile.address, 1);
+        assert!(address == profile.owner, 1);
 
         let share_post = SharePost {
             id: object::new(ctx),
+            owner: address,
             timestamp: clock::timestamp_ms(clock),
-            message
+            message,
+            likes: object_table::new<u64, Like>(ctx),
+            dislikes: object_table::new<u64, DisLike>(ctx),
+            categorization: object_table::new<u64, Categorization>(ctx)
         };
 
         let share_posts_length = object_table::length(&post.share_posts) + 1;
@@ -260,15 +361,19 @@ module dechat_sui::main {
         ctx: &mut TxContext
     ) {
         let address = tx_context::sender(ctx);
-        assert!(address == profile.address, 1);
+        assert!(address == profile.owner, 1);
 
         let chain = get_supporting_chain(chain);
         let share_post = ExtSharePost {
             id: object::new(ctx),
+            owner: address,
             timestamp: clock::timestamp_ms(clock),
             message,
             chain,
-            sharing_msg_id
+            sharing_msg_id,
+            likes: object_table::new<u64, Like>(ctx),
+            dislikes: object_table::new<u64, DisLike>(ctx),
+            categorization: object_table::new<u64, Categorization>(ctx)
         };
 
         let share_posts_length = object_table::length(&all_ext_share_posts.posts) + 1;
@@ -396,10 +501,13 @@ module dechat_sui::main {
             let message = utf8(b"");
             let profile = Profile {
                 id: object::new(ctx),
-                address: profile_owner_address,
+                owner: profile_owner_address,
                 user_name,
                 full_name,
-                description: option::none()
+                description: option::none(),
+                profile_flag: ProfileFlag {
+                    color: utf8(b"#ffffff")
+                }
             };
             let all_posts = AllPosts {
                 id: object::new(ctx),
@@ -436,21 +544,28 @@ module dechat_sui::main {
         test_scenario::next_tx(scenario, profile_owner_address);
         {
             let ctx = test_scenario::ctx(scenario);
-            let clock = clock::create_for_testing(ctx);            
+            let clock = clock::create_for_testing(ctx);  
             let message = utf8(b"");
             let profile = Profile {
                 id: object::new(ctx),
-                address: profile_owner_address,
+                owner: profile_owner_address,
                 user_name,
                 full_name,
-                description: option::none()
+                description: option::none(),
+                profile_flag: ProfileFlag {
+                    color: utf8(b"#ffffff")
+                }
             };
             let post = Post {
                 id: object::new(ctx),
+                owner: profile_owner_address,
                 timestamp: clock::timestamp_ms(&clock),
                 message,
                 response_posts: object_table::new<u64, ResponsePost>(ctx),
                 share_posts: object_table::new<u64, SharePost>(ctx),
+                likes: object_table::new<u64, Like>(ctx),
+                dislikes: object_table::new<u64, DisLike>(ctx),
+                categorization: object_table::new<u64, Categorization>(ctx)
             };
                         
             add_response_post_to_post(&clock, &mut post, &profile, message, ctx);
@@ -487,10 +602,13 @@ module dechat_sui::main {
             let message = utf8(b"");
             let profile = Profile {
                 id: object::new(ctx),
-                address: profile_owner_address,
+                owner: profile_owner_address,
                 user_name,
                 full_name,
-                description: option::none()
+                description: option::none(),
+                profile_flag: ProfileFlag {
+                    color: utf8(b"#ffffff")
+                }
             };
             let all_ext_response_posts = AllExtResponsePosts {
                 id: object::new(ctx),
@@ -539,17 +657,24 @@ module dechat_sui::main {
             let message = utf8(b"");
             let profile = Profile {
                 id: object::new(ctx),
-                address: profile_owner_address,
+                owner: profile_owner_address,
                 user_name,
                 full_name,
-                description: option::none()
+                description: option::none(),
+                profile_flag: ProfileFlag {
+                    color: utf8(b"#ffffff")
+                }
             };
             let post = Post {
                 id: object::new(ctx),
+                owner: profile_owner_address,
                 timestamp: clock::timestamp_ms(&clock),
                 message,
                 response_posts: object_table::new<u64, ResponsePost>(ctx),
                 share_posts: object_table::new<u64, SharePost>(ctx),
+                likes: object_table::new<u64, Like>(ctx),
+                dislikes: object_table::new<u64, DisLike>(ctx),
+                categorization: object_table::new<u64, Categorization>(ctx)
             };
                         
             add_share_post_to_post(&clock, &mut post, &profile, option::some(message), ctx);
@@ -586,10 +711,13 @@ module dechat_sui::main {
             let message = option::some(utf8(b""));
             let profile = Profile {
                 id: object::new(ctx),
-                address: profile_owner_address,
+                owner: profile_owner_address,
                 user_name,
                 full_name,
-                description: option::none()
+                description: option::none(),
+                profile_flag: ProfileFlag {
+                    color: utf8(b"#ffffff")
+                }
             };
             let all_ext_share_posts = AllExtSharePosts {
                 id: object::new(ctx),
