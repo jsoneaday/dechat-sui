@@ -131,12 +131,14 @@ module dechat_sui::main {
     /// likes on sui chain
     struct Like has key, store {
         id: UID,
+        timestamp: u64,
         liker: address
     }
 
     /// dislikes on sui chain
     struct DisLike has key, store {
         id: UID,
+        timestamp: u64,
         disliker: address
     }
 
@@ -271,6 +273,25 @@ module dechat_sui::main {
 
         let posts_length = object_table::length(&all_posts.posts) + 1;
         object_table::add(&mut all_posts.posts, posts_length, post);
+    }
+
+    entry fun add_like_to_post(
+        clock: &Clock,
+        post: &mut Post,
+        profile: &Profile,
+        liker: address,
+        ctx: &mut TxContext
+    ) {
+        let timestamp = clock::timestamp_ms(clock);
+        let address = tx_context::sender(ctx);
+        assert!(address == profile.owner, 1);
+
+        let post_likes_length = object_table::length(&post.likes) + 1;
+        object_table::add(&mut post.likes, post_likes_length, Like {
+            id: object::new(ctx),
+            timestamp,
+            liker
+        });
     }
 
     entry fun add_response_post_to_post(
@@ -423,8 +444,11 @@ module dechat_sui::main {
     #[test]
     fun test_create_app_metadata() {
         use sui::test_scenario;
+        use sui::test_scenario::{Self as test};
+        use sui::test_utils::assert_eq;
 
         let admin_address = @0xBABE;
+        let version = utf8(b"0.0.1");
 
         let original_scenario = test_scenario::begin(admin_address);
         let scenario = &mut original_scenario;
@@ -435,8 +459,7 @@ module dechat_sui::main {
         test_scenario::next_tx(scenario, admin_address);
         {
             let ctx = test_scenario::ctx(scenario);
-            let clock = clock::create_for_testing(ctx);
-            let version = utf8(b"0.0.1");
+            let clock = clock::create_for_testing(ctx);            
             let admin = DechatAdmin { id: object::new(ctx) };
 
             create_app_metadata(
@@ -444,10 +467,17 @@ module dechat_sui::main {
                 version,
                 &admin,
                 ctx
-            );
+            );            
 
             clock::destroy_for_testing(clock);
-            transfer::transfer(admin, admin_address);
+            transfer::transfer(admin, admin_address);            
+        };
+
+        test_scenario::next_tx(scenario, admin_address);
+        {
+            let app_metadata = test::take_shared<AppMetadata>(scenario);
+            assert_eq(app_metadata.version, version);
+            test::return_shared(app_metadata);
         };
 
         test_scenario::end(original_scenario);
@@ -456,10 +486,14 @@ module dechat_sui::main {
     #[test]
     fun test_create_profile() {
         use sui::test_scenario;
+        use sui::test_scenario::{Self as test};
+        use sui::test_utils::assert_eq;
         use std::option;
 
         let admin = @0xBABE;
         let profile_owner = @0xCAFE;
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
 
         let original_scenario = test_scenario::begin(admin);
         let scenario = &mut original_scenario;
@@ -468,10 +502,16 @@ module dechat_sui::main {
         };
 
         test_scenario::next_tx(scenario, profile_owner);
-        {
-            let user_name = utf8(b"dave");
-            let full_name = utf8(b"David Choi");
+        {            
             create_profile(user_name, full_name, option::none(), test_scenario::ctx(scenario))
+        };
+
+        test_scenario::next_tx(scenario, profile_owner);
+        {
+            let profile = test::take_shared<Profile>(scenario);
+            assert_eq(profile.user_name, user_name);
+            assert_eq(profile.full_name, full_name);
+            test::return_shared(profile);
         };
 
         test_scenario::end(original_scenario);
@@ -519,6 +559,66 @@ module dechat_sui::main {
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
             transfer::share_object(all_posts);
+        };
+
+        test_scenario::end(original_scenario);
+    }
+
+    #[test]
+    fun test_add_like_to_post() {
+        use sui::test_scenario;
+        use sui::test_utils::assert_eq;
+        use std::option;
+
+        let admin_address = @0xBABE;
+        let profile_owner_address = @0xCAFE;
+        let liker_address = @0x4067;
+
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
+
+        let original_scenario = test_scenario::begin(admin_address);
+        let scenario = &mut original_scenario;
+        {
+            init(MAIN{}, test_scenario::ctx(scenario));
+        };
+
+        test_scenario::next_tx(scenario, profile_owner_address);
+        {
+            let ctx = test_scenario::ctx(scenario);
+            let clock = clock::create_for_testing(ctx);            
+            let message = utf8(b"");
+            let profile = Profile {
+                id: object::new(ctx),
+                owner: profile_owner_address,
+                user_name,
+                full_name,
+                description: option::none(),
+                profile_flag: ProfileFlag {
+                    color: utf8(b"#ffffff")
+                }
+            };
+            let post = Post {
+                id: object::new(ctx),
+                owner: profile_owner_address,
+                timestamp: clock::timestamp_ms(&clock),
+                message,
+                response_posts: object_table::new<u64, ResponsePost>(ctx),
+                share_posts: object_table::new<u64, SharePost>(ctx),
+                likes: object_table::new<u64, Like>(ctx),
+                dislikes: object_table::new<u64, DisLike>(ctx),
+                categorization: object_table::new<u64, Categorization>(ctx)
+            };
+                        
+            add_like_to_post(&clock, &mut post, &profile, liker_address, ctx);
+
+            let post_likes_length = object_table::length(&post.likes);
+            let post_likes = object_table::borrow(&post.likes, post_likes_length);
+            assert_eq(post_likes.liker, liker_address);
+
+            clock::destroy_for_testing(clock);
+            transfer::transfer(profile, profile_owner_address);
+            transfer::transfer(post, profile_owner_address);
         };
 
         test_scenario::end(original_scenario);
