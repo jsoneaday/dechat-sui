@@ -520,6 +520,8 @@ module dechat_sui::main {
     #[test]
     fun test_add_post_to_all_posts() {
         use sui::test_scenario;
+        use sui::test_scenario::{begin, end, next_tx, Self as test};
+        use sui::test_utils::assert_eq;
         use std::option;
 
         let admin_address = @0xBABE;
@@ -527,18 +529,19 @@ module dechat_sui::main {
 
         let user_name = utf8(b"dave");
         let full_name = utf8(b"David Choi");
+        let post_message = utf8(b"hello world");
 
-        let original_scenario = test_scenario::begin(admin_address);
+        let original_scenario = begin(admin_address);
         let scenario = &mut original_scenario;
         {
             init(MAIN{}, test_scenario::ctx(scenario));
         };
 
-        test_scenario::next_tx(scenario, profile_owner_address);
+        next_tx(scenario, profile_owner_address);
         {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);            
-            let message = utf8(b"");
+            
             let profile = Profile {
                 id: object::new(ctx),
                 owner: profile_owner_address,
@@ -554,19 +557,30 @@ module dechat_sui::main {
                 posts: object_table::new<u64, Post>(ctx)
             };
                         
-            add_post_to_all_posts(&clock, &mut all_posts, &profile, message, ctx);
+            add_post_to_all_posts(&clock, &mut all_posts, &profile, post_message, ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
             transfer::share_object(all_posts);
         };
 
-        test_scenario::end(original_scenario);
+        next_tx(scenario, profile_owner_address);
+        {
+            let all_posts = test::take_shared<AllPosts>(scenario);
+            let all_posts_posts_length = object_table::length(&all_posts.posts);
+            let last_post = object_table::borrow(&all_posts.posts, all_posts_posts_length);
+            assert_eq(last_post.message, post_message);
+
+            test::return_shared(all_posts);
+        };
+
+        end(original_scenario);
     }
 
     #[test]
     fun test_add_like_to_post() {
         use sui::test_scenario;
+        use sui::test_scenario::{begin, end, next_tx, Self as test};
         use sui::test_utils::assert_eq;
         use std::option;
 
@@ -577,13 +591,13 @@ module dechat_sui::main {
         let user_name = utf8(b"dave");
         let full_name = utf8(b"David Choi");
 
-        let original_scenario = test_scenario::begin(admin_address);
+        let original_scenario = begin(admin_address);
         let scenario = &mut original_scenario;
         {
             init(MAIN{}, test_scenario::ctx(scenario));
         };
 
-        test_scenario::next_tx(scenario, profile_owner_address);
+        next_tx(scenario, profile_owner_address);
         {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);            
@@ -621,7 +635,7 @@ module dechat_sui::main {
             transfer::transfer(post, profile_owner_address);
         };
 
-        test_scenario::end(original_scenario);
+        end(original_scenario);
     }
 
     #[test]
