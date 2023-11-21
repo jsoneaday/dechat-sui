@@ -307,6 +307,25 @@ module dechat_sui::main {
         });
     }
 
+    entry fun add_dislike_to_post(
+        clock: &Clock,
+        post: &mut Post,
+        profile: &Profile,
+        disliker: address,
+        ctx: &mut TxContext
+    ) {
+        let timestamp = clock::timestamp_ms(clock);
+        let address = tx_context::sender(ctx);
+        assert!(address == profile.owner, 1);
+
+        let post_likes_length = object_table::length(&post.dislikes) + 1;
+        object_table::add(&mut post.dislikes, post_likes_length, DisLike {
+            id: object::new(ctx),
+            timestamp,
+            disliker
+        });
+    }
+
     entry fun add_response_post_to_post(
         clock: &Clock, 
         post: &mut Post, 
@@ -625,7 +644,7 @@ module dechat_sui::main {
         {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);            
-            let message = utf8(b"");
+            let message = utf8(b"hello world");
             let profile = Profile {
                 id: object::new(ctx),
                 owner: profile_owner_address,
@@ -662,6 +681,68 @@ module dechat_sui::main {
             let post_likes = object_table::borrow(&post.likes, post_likes_length);
             
             assert_eq(post_likes.liker, liker_address);
+
+            test::return_shared(post);
+        };
+
+        end(original_scenario);
+    }
+
+    #[test]
+    fun test_add_dislike_to_post() {
+        use sui::test_scenario;
+        use sui::test_scenario::{begin, end, next_tx, Self as test};
+        use sui::test_utils::assert_eq;
+        use std::option;
+
+        let profile_owner_address = @0xCAFE;
+        let disliker_address = @0x4067;
+
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
+
+        let original_scenario = begin(profile_owner_address);
+        let scenario = &mut original_scenario;
+        {
+            let ctx = test_scenario::ctx(scenario);
+            let clock = clock::create_for_testing(ctx);            
+            let message = utf8(b"hello world");
+            let profile = Profile {
+                id: object::new(ctx),
+                owner: profile_owner_address,
+                user_name,
+                full_name,
+                description: option::none(),
+                profile_flag: ProfileFlag {
+                    color: utf8(b"#ffffff")
+                }
+            };
+            let post = Post {
+                id: object::new(ctx),
+                owner: profile_owner_address,
+                timestamp: clock::timestamp_ms(&clock),
+                message,
+                response_posts: object_table::new<u64, ResponsePost>(ctx),
+                share_posts: object_table::new<u64, SharePost>(ctx),
+                likes: object_table::new<u64, Like>(ctx),
+                dislikes: object_table::new<u64, DisLike>(ctx),
+                categorization: object_table::new<u64, Categorization>(ctx)
+            };
+                        
+            add_dislike_to_post(&clock, &mut post, &profile, disliker_address, ctx);
+
+            clock::destroy_for_testing(clock);
+            transfer::transfer(profile, profile_owner_address);
+            transfer::share_object(post);
+        };
+
+        next_tx(scenario, profile_owner_address);
+        {
+            let post = test::take_shared<Post>(scenario);
+            let post_dislikes_length = object_table::length(&post.dislikes);
+            let post_dislike = object_table::borrow(&post.dislikes, post_dislikes_length);
+            
+            assert_eq(post_dislike.disliker, disliker_address);
 
             test::return_shared(post);
         };
