@@ -658,9 +658,9 @@ module dechat_sui::main {
         next_tx(scenario, profile_owner_address);
         {
             let post = test::take_shared<Post>(scenario);
-
             let post_likes_length = object_table::length(&post.likes);
             let post_likes = object_table::borrow(&post.likes, post_likes_length);
+            
             assert_eq(post_likes.liker, liker_address);
 
             test::return_shared(post);
@@ -680,13 +680,14 @@ module dechat_sui::main {
 
         let user_name = utf8(b"dave");
         let full_name = utf8(b"David Choi");
+        let message = utf8(b"hello world");
 
         let original_scenario = test_scenario::begin(profile_owner_address);
         let scenario = &mut original_scenario;
         {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);  
-            let message = utf8(b"");
+            
             let profile = Profile {
                 id: object::new(ctx),
                 owner: profile_owner_address,
@@ -697,23 +698,44 @@ module dechat_sui::main {
                     color: utf8(b"#ffffff")
                 }
             };
-            let post = Post {
+            let all_posts = AllPosts {
                 id: object::new(ctx),
-                owner: profile_owner_address,
-                timestamp: clock::timestamp_ms(&clock),
-                message,
-                response_posts: object_table::new<u64, ResponsePost>(ctx),
-                share_posts: object_table::new<u64, SharePost>(ctx),
-                likes: object_table::new<u64, Like>(ctx),
-                dislikes: object_table::new<u64, DisLike>(ctx),
-                categorization: object_table::new<u64, Categorization>(ctx)
+                posts: object_table::new<u64, Post>(ctx)
             };
-                        
-            add_response_post_to_post(&clock, &mut post, &profile, message, ctx);
+
+            add_post_to_all_posts(&clock, &mut all_posts, &profile, utf8(b"hello world in post"), ctx);          
 
             clock::destroy_for_testing(clock);
-            transfer::transfer(profile, profile_owner_address);
-            transfer::transfer(post, profile_owner_address);
+            transfer::share_object(profile);
+            transfer::share_object(all_posts);
+        };
+
+        next_tx(scenario, profile_owner_address);
+        {
+            let clock = clock::create_for_testing(test_scenario::ctx(scenario));
+            let profile = test::take_shared<Profile>(scenario);
+            let all_posts = test::take_shared<AllPosts>(scenario);
+            let all_posts_posts_length = object_table::length(&all_posts.posts);
+            let post = object_table::borrow_mut(&mut all_posts.posts, all_posts_posts_length);            
+
+            add_response_post_to_post(&clock, post, &profile, message, test_scenario::ctx(scenario));
+
+            clock::destroy_for_testing(clock);
+            test::return_shared(profile);
+            test::return_shared(all_posts);
+        };
+
+        next_tx(scenario, profile_owner_address);
+        {
+            let all_posts = test::take_shared<AllPosts>(scenario);
+            let all_posts_posts_length = object_table::length(&all_posts.posts);
+            let post = object_table::borrow_mut(&mut all_posts.posts, all_posts_posts_length); 
+            let post_length = object_table::length(&post.response_posts);
+            let response_post = object_table::borrow(&post.response_posts, post_length);
+
+            assert_eq(response_post.message, message);
+
+            test::return_shared(all_posts);
         };
       
         test_scenario::end(original_scenario);
