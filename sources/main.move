@@ -5,13 +5,11 @@ module dechat_sui::main {
     use sui::tx_context::{Self, TxContext};
     use sui::object_table;
     use sui::object_table::ObjectTable;
-    use sui::clock::{Self, Clock};    
-    use sui::hex::encode;
+    use sui::clock::{Self, Clock};
     use std::string::{Self, String, utf8};
     use std::option;
     use std::vector;
     use std::option::Option;
-    use std::debug;
 
     struct MAIN has drop {}
 
@@ -25,6 +23,7 @@ module dechat_sui::main {
         version: String
     }
 
+    #[allow(unused)]
     const SUI: vector<u8> = b"sui";
     const APTOS: vector<u8> = b"aptos";
     const COSMOS: vector<u8> = b"cosmos";
@@ -32,7 +31,6 @@ module dechat_sui::main {
     const ARWEAVE: vector<u8> = b"arweave";
 
     struct ExternalChain has store {
-        sui: bool,
         aptos: bool,
         cosmos: bool,
         arweave: bool
@@ -149,7 +147,7 @@ module dechat_sui::main {
         id: UID,
         timestamp: u64,
         chain: ExternalChain,
-        liker: String,
+        liker: address,
         target: String
     }
 
@@ -157,7 +155,7 @@ module dechat_sui::main {
         id: UID,
         timestamp: u64,
         chain: ExternalChain,
-        disliker: String,
+        disliker: address,
         target: String
     }
 
@@ -307,6 +305,29 @@ module dechat_sui::main {
         });
     }
 
+    entry fun add_ext_like_to_post(
+        clock: &Clock,
+        all_ext_likes: &mut AllExtLikes,
+        profile: &Profile,
+        chain: String,
+        liker: address,
+        target: String,
+        ctx: &mut TxContext
+    ) {
+        let timestamp = clock::timestamp_ms(clock);
+        let address = tx_context::sender(ctx);
+        assert!(address == profile.owner, 1);
+
+        let all_ext_likes_length = object_table::length(&all_ext_likes.likes) + 1;
+        object_table::add(&mut all_ext_likes.likes, all_ext_likes_length, ExtLike {
+            id: object::new(ctx),
+            timestamp,
+            chain: get_supporting_chain(chain),
+            liker,
+            target
+        });
+    }
+
     entry fun add_dislike_to_post(
         clock: &Clock,
         post: &mut Post,
@@ -323,6 +344,29 @@ module dechat_sui::main {
             id: object::new(ctx),
             timestamp,
             disliker
+        });
+    }
+
+    entry fun add_ext_dislike_to_post(
+        clock: &Clock,
+        all_ext_dislikes: &mut AllExtDisLikes,
+        profile: &Profile,
+        chain: String,
+        disliker: address,
+        target: String,
+        ctx: &mut TxContext
+    ) {
+        let timestamp = clock::timestamp_ms(clock);
+        let address = tx_context::sender(ctx);
+        assert!(address == profile.owner, 1);
+
+        let all_ext_dislikes_length = object_table::length(&all_ext_dislikes.dislikes) + 1;
+        object_table::add(&mut all_ext_dislikes.dislikes, all_ext_dislikes_length, ExtDisLike {
+            id: object::new(ctx),
+            timestamp,
+            chain: get_supporting_chain(chain),
+            disliker,
+            target
         });
     }
 
@@ -435,30 +479,21 @@ module dechat_sui::main {
 
     #[allow(unused)]
     fun get_supporting_chain(chain: String): ExternalChain {
-        if (chain == utf8(SUI)) {
+        if (chain == utf8(APTOS)) {
             ExternalChain {
-                sui: true,
-                aptos: false,
-                cosmos: false,
-                arweave: false
-            }
-        } else if (chain == utf8(APTOS)) {
-            ExternalChain {
-                sui: false,
+                
                 aptos: true,
                 cosmos: false,
                 arweave: false
             }
         } else if (chain == utf8(COSMOS)) {
             ExternalChain {
-                sui: false,
                 aptos: false,
                 cosmos: true,
                 arweave: false
             }
         } else {
             ExternalChain {
-                sui: false,
                 aptos: false,
                 cosmos: false,
                 arweave: true
@@ -882,6 +917,132 @@ module dechat_sui::main {
         };
 
         test_scenario::end(original_scenario);
+    }
+
+    #[test]
+    fun test_add_ext_like_to_post() {
+        use sui::test_scenario;
+        use sui::test_scenario::{begin, end, next_tx, Self as test};
+        use sui::test_utils::assert_eq;
+        use std::option;
+
+        let profile_owner_address = @0xCAFE;
+        let liker_address = @0x4067;
+
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
+
+        let original_scenario = begin(profile_owner_address);
+        let scenario = &mut original_scenario;
+        {
+            let ctx = test_scenario::ctx(scenario);
+            let clock = clock::create_for_testing(ctx);            
+            
+            let profile = Profile {
+                id: object::new(ctx),
+                owner: profile_owner_address,
+                user_name,
+                full_name,
+                description: option::none(),
+                profile_flag: ProfileFlag {
+                    color: utf8(b"#ffffff")
+                }
+            };
+            let all_ext_likes = AllExtLikes {
+                id: object::new(ctx),
+                likes: object_table::new<u64, ExtLike>(ctx)
+            };
+                        
+            add_ext_like_to_post(
+                &clock, 
+                &mut all_ext_likes, 
+                &profile, 
+                utf8(b"aptos"), 
+                liker_address, 
+                utf8(b"123"),
+                ctx
+            );
+
+            clock::destroy_for_testing(clock);
+            transfer::transfer(profile, profile_owner_address);
+            transfer::share_object(all_ext_likes);
+        };
+
+        next_tx(scenario, profile_owner_address);
+        {
+            let all_ext_likes = test::take_shared<AllExtLikes>(scenario);
+            let ext_likes_length = object_table::length(&all_ext_likes.likes);
+            let like = object_table::borrow(&all_ext_likes.likes, ext_likes_length);
+            
+            assert_eq(like.liker, liker_address);
+
+            test::return_shared(all_ext_likes);
+        };
+
+        end(original_scenario);
+    }
+
+    #[test]
+    fun test_add_ext_dislike_to_post() {
+        use sui::test_scenario;
+        use sui::test_scenario::{begin, end, next_tx, Self as test};
+        use sui::test_utils::assert_eq;
+        use std::option;
+
+        let profile_owner_address = @0xCAFE;
+        let dis_liker_address = @0x4067;
+
+        let user_name = utf8(b"dave");
+        let full_name = utf8(b"David Choi");
+
+        let original_scenario = begin(profile_owner_address);
+        let scenario = &mut original_scenario;
+        {
+            let ctx = test_scenario::ctx(scenario);
+            let clock = clock::create_for_testing(ctx);            
+            
+            let profile = Profile {
+                id: object::new(ctx),
+                owner: profile_owner_address,
+                user_name,
+                full_name,
+                description: option::none(),
+                profile_flag: ProfileFlag {
+                    color: utf8(b"#ffffff")
+                }
+            };
+            let all_ext_dislikes = AllExtDisLikes {
+                id: object::new(ctx),
+                dislikes: object_table::new<u64, ExtDisLike>(ctx)
+            };
+                        
+            add_ext_dislike_to_post(
+                &clock, 
+                &mut all_ext_dislikes, 
+                &profile, 
+                utf8(b"aptos"), 
+                dis_liker_address, 
+                utf8(b"123"),
+                ctx
+            );
+
+            clock::destroy_for_testing(clock);
+            transfer::transfer(profile, profile_owner_address);
+            transfer::share_object(all_ext_dislikes);
+        };
+
+        next_tx(scenario, profile_owner_address);
+        {
+            let all_ext_dislikes = test::take_shared<AllExtDisLikes>(scenario);
+            let ext_dislikes_length = object_table::length(&all_ext_dislikes.dislikes);
+            let dislike = object_table::borrow(&all_ext_dislikes.dislikes, ext_dislikes_length);
+            
+            assert_eq(dislike.disliker, dis_liker_address);
+
+            test::return_shared(all_ext_dislikes);
+        };
+
+        end(original_scenario);
     }
 
     #[test]
