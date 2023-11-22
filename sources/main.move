@@ -211,18 +211,17 @@ module dechat_sui::main {
         };
         transfer::share_object(all_ext_share_posts);
 
-        // todo: uncomment when ready
-        // let all_ext_likes = AllExtLikes {
-        //     id: object::new(ctx),
-        //     likes: object_table::new<u64, ExtLike>(ctx)
-        // };
-        // transfer::share_object(all_ext_likes);
+        let all_ext_likes = AllExtLikes {
+            id: object::new(ctx),
+            likes: object_table::new<u64, ExtLike>(ctx)
+        };
+        transfer::share_object(all_ext_likes);
 
-        // let all_ext_dislikes = AllExtDisLikes {
-        //     id: object::new(ctx),
-        //     dislikes: object_table::new<u64, ExtDisLike>(ctx)
-        // };
-        // transfer::share_object(all_ext_dislikes);
+        let all_ext_dislikes = AllExtDisLikes {
+            id: object::new(ctx),
+            dislikes: object_table::new<u64, ExtDisLike>(ctx)
+        };
+        transfer::share_object(all_ext_dislikes);
     }
 
     /// admin is passed but not checked since it could only have been passed in by original caller of init
