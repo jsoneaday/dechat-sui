@@ -526,6 +526,12 @@ module dechat_sui::main {
 
             let all_ext_share_posts = test::take_shared<AllExtSharePosts>(scenario);
             test::return_shared(all_ext_share_posts);
+
+            let all_ext_likes = test::take_shared<AllExtLikes>(scenario);
+            test::return_shared(all_ext_likes);
+
+            let all_ext_dislikes = test::take_shared<AllExtDisLikes>(scenario);
+            test::return_shared(all_ext_dislikes);
         };
         test_scenario::end(original_scenario);
     }
