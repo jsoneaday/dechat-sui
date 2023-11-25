@@ -1,6 +1,6 @@
 #[allow(unused_use, unused_field)]
 module dechat_sui::main {
-    use sui::object::{Self, UID};
+    use sui::object::{Self, UID, ID};
     use sui::transfer;
     use sui::tx_context::{Self, TxContext};
     use sui::object_table;
@@ -10,6 +10,7 @@ module dechat_sui::main {
     use std::option;
     use std::vector;
     use std::option::Option;
+    
 
     struct MAIN has drop {}
 
@@ -38,6 +39,8 @@ module dechat_sui::main {
 
     struct Categorization has key, store {
         id: UID,
+        post_id: Option<ID>,
+        ext_post_id: Option<String>,
         normal: bool,        
         lie: bool,
         misleading: bool,        
@@ -66,12 +69,7 @@ module dechat_sui::main {
         id: UID,
         owner: address,
         timestamp: u64,
-        message: String,
-        response_posts: ObjectTable<u64, ResponsePost>,
-        share_posts: ObjectTable<u64, SharePost>,
-        likes: ObjectTable<u64, Like>,
-        dislikes: ObjectTable<u64, DisLike>,
-        categorization: ObjectTable<u64, Categorization>
+        message: String        
     }
 
     /// On-chain response post object
@@ -80,9 +78,7 @@ module dechat_sui::main {
         owner: address,
         timestamp: u64,
         message: String,
-        likes: ObjectTable<u64, Like>,
-        dislikes: ObjectTable<u64, DisLike>,
-        categorization: ObjectTable<u64, Categorization>
+        respondee_post_id: ID
     }
 
     /// Post that responds to a post on an external chain
@@ -94,10 +90,7 @@ module dechat_sui::main {
         timestamp: u64,
         message: String,
         chain: ExternalChain,
-        responding_msg_id: String,
-        likes: ObjectTable<u64, Like>,
-        dislikes: ObjectTable<u64, DisLike>,
-        categorization: ObjectTable<u64, Categorization>
+        respondee_post_id: String
     }
     
     /// On-chain post sharing object
@@ -106,9 +99,7 @@ module dechat_sui::main {
         owner: address,
         timestamp: u64,
         message: Option<String>,
-        likes: ObjectTable<u64, Like>,
-        dislikes: ObjectTable<u64, DisLike>,
-        categorization: ObjectTable<u64, Categorization>
+        sharee_post_id: ID
     }
 
     /// Share Post to external foreign chain Posts
@@ -120,24 +111,23 @@ module dechat_sui::main {
         timestamp: u64,
         message: Option<String>,
         chain: ExternalChain,
-        sharing_msg_id: String,
-        likes: ObjectTable<u64, Like>,
-        dislikes: ObjectTable<u64, DisLike>,
-        categorization: ObjectTable<u64, Categorization>
+        sharee_post_id: String
     }
 
     /// likes on sui chain
     struct Like has key, store {
         id: UID,
         timestamp: u64,
-        liker: address
+        liker: address,
+        post_id: ID
     }
 
     /// dislikes on sui chain
     struct DisLike has key, store {
         id: UID,
         timestamp: u64,
-        disliker: address
+        disliker: address,
+        post_id: ID
     }
 
     /// likes on foreign chain
@@ -148,7 +138,7 @@ module dechat_sui::main {
         timestamp: u64,
         chain: ExternalChain,
         liker: address,
-        target: String
+        post_id: String
     }
 
     struct ExtDisLike has key, store {
@@ -156,33 +146,7 @@ module dechat_sui::main {
         timestamp: u64,
         chain: ExternalChain,
         disliker: address,
-        target: String
-    }
-
-    /// u64 key represents an index value
-    struct AllPosts has key, store {
-        id: UID,
-        posts: ObjectTable<u64, Post>
-    }
-
-    struct AllExtResponsePosts has key, store {
-        id: UID,
-        posts: ObjectTable<u64, ExtResponsePost>
-    }
-
-    struct AllExtSharePosts has key, store {
-        id: UID,
-        posts: ObjectTable<u64, ExtSharePost>
-    }
-
-    struct AllExtLikes has key, store {
-        id: UID,
-        likes: ObjectTable<u64, ExtLike>
-    }
-
-    struct AllExtDisLikes has key, store {
-        id: UID,
-        dislikes: ObjectTable<u64, ExtDisLike>
+        post_id: String
     }
 
     fun init(main: MAIN, ctx: &mut TxContext) {
@@ -192,36 +156,6 @@ module dechat_sui::main {
             id: object::new(ctx)
         };        
         transfer::transfer(admin, tx_context::sender(ctx));
-
-        let all_posts = AllPosts {
-            id: object::new(ctx),
-            posts: object_table::new<u64, Post>(ctx)
-        };
-        transfer::share_object(all_posts);
-
-        let all_ext_response_posts = AllExtResponsePosts {
-            id: object::new(ctx),
-            posts: object_table::new<u64, ExtResponsePost>(ctx)
-        };
-        transfer::share_object(all_ext_response_posts);
-
-        let all_ext_share_posts = AllExtSharePosts {
-            id: object::new(ctx),
-            posts: object_table::new<u64, ExtSharePost>(ctx)
-        };
-        transfer::share_object(all_ext_share_posts);
-
-        let all_ext_likes = AllExtLikes {
-            id: object::new(ctx),
-            likes: object_table::new<u64, ExtLike>(ctx)
-        };
-        transfer::share_object(all_ext_likes);
-
-        let all_ext_dislikes = AllExtDisLikes {
-            id: object::new(ctx),
-            dislikes: object_table::new<u64, ExtDisLike>(ctx)
-        };
-        transfer::share_object(all_ext_dislikes);
     }
 
     /// admin is passed but not checked since it could only have been passed in by original caller of init
@@ -257,9 +191,8 @@ module dechat_sui::main {
         transfer::share_object(profile);
     }
  
-    entry fun add_post_to_all_posts(
-        clock: &Clock, 
-        all_posts: &mut AllPosts, 
+    entry fun create_post(
+        clock: &Clock,
         profile: &Profile, 
         message: String, 
         ctx: &mut TxContext
@@ -273,105 +206,99 @@ module dechat_sui::main {
             id: post_id,
             owner: address,
             timestamp,
-            message,
-            response_posts: object_table::new<u64, ResponsePost>(ctx),
-            share_posts: object_table::new<u64, SharePost>(ctx),
-            likes: object_table::new<u64, Like>(ctx),
-            dislikes: object_table::new<u64, DisLike>(ctx),
-            categorization: object_table::new<u64, Categorization>(ctx)
+            message
         };
 
-        let posts_length = object_table::length(&all_posts.posts) + 1;
-        object_table::add(&mut all_posts.posts, posts_length, post);
+        transfer::share_object(post);
     }
 
-    entry fun add_like_to_post(
+    entry fun create_like(
         clock: &Clock,
         post: &mut Post,
         profile: &Profile,
-        liker: address,
         ctx: &mut TxContext
     ) {
         let timestamp = clock::timestamp_ms(clock);
         let address = tx_context::sender(ctx);
         assert!(address == profile.owner, 1);
 
-        let post_likes_length = object_table::length(&post.likes) + 1;
-        object_table::add(&mut post.likes, post_likes_length, Like {
+        let like = Like {
             id: object::new(ctx),
             timestamp,
-            liker
-        });
+            liker: address,
+            post_id: object::uid_to_inner(&post.id)
+        };
+
+        transfer::share_object(like);
     }
 
-    entry fun add_ext_like_to_post(
+    entry fun create_ext_like(
         clock: &Clock,
-        all_ext_likes: &mut AllExtLikes,
         profile: &Profile,
         chain: String,
-        liker: address,
-        target: String,
+        post_id: String,
         ctx: &mut TxContext
     ) {
         let timestamp = clock::timestamp_ms(clock);
         let address = tx_context::sender(ctx);
         assert!(address == profile.owner, 1);
 
-        let all_ext_likes_length = object_table::length(&all_ext_likes.likes) + 1;
-        object_table::add(&mut all_ext_likes.likes, all_ext_likes_length, ExtLike {
+        let ext_like = ExtLike {
             id: object::new(ctx),
             timestamp,
             chain: get_supporting_chain(chain),
-            liker,
-            target
-        });
+            liker: address,
+            post_id
+        };
+
+        transfer::share_object(ext_like);
     }
 
-    entry fun add_dislike_to_post(
+    entry fun create_dislike(
         clock: &Clock,
         post: &mut Post,
         profile: &Profile,
-        disliker: address,
         ctx: &mut TxContext
     ) {
         let timestamp = clock::timestamp_ms(clock);
         let address = tx_context::sender(ctx);
         assert!(address == profile.owner, 1);
 
-        let post_likes_length = object_table::length(&post.dislikes) + 1;
-        object_table::add(&mut post.dislikes, post_likes_length, DisLike {
+        let dislike = DisLike {
             id: object::new(ctx),
             timestamp,
-            disliker
-        });
+            disliker: address,
+            post_id: object::uid_to_inner(&post.id)
+        };
+
+        transfer::share_object(dislike);
     }
 
-    entry fun add_ext_dislike_to_post(
+    entry fun create_ext_dislike(
         clock: &Clock,
-        all_ext_dislikes: &mut AllExtDisLikes,
         profile: &Profile,
         chain: String,
-        disliker: address,
-        target: String,
+        post_id: String,
         ctx: &mut TxContext
     ) {
         let timestamp = clock::timestamp_ms(clock);
         let address = tx_context::sender(ctx);
         assert!(address == profile.owner, 1);
 
-        let all_ext_dislikes_length = object_table::length(&all_ext_dislikes.dislikes) + 1;
-        object_table::add(&mut all_ext_dislikes.dislikes, all_ext_dislikes_length, ExtDisLike {
+        let ext_dislike = ExtDisLike {
             id: object::new(ctx),
             timestamp,
             chain: get_supporting_chain(chain),
-            disliker,
-            target
-        });
+            disliker: address,
+            post_id
+        };
+
+        transfer::share_object(ext_dislike);
     }
 
-    entry fun add_response_post_to_post(
+    entry fun create_response_post(
         clock: &Clock, 
-        post: &mut Post, 
+        post: &Post, 
         profile: &Profile, 
         message: String,
         ctx: &mut TxContext
@@ -384,21 +311,17 @@ module dechat_sui::main {
             owner: address,
             timestamp: clock::timestamp_ms(clock),
             message,
-            likes: object_table::new<u64, Like>(ctx),
-            dislikes: object_table::new<u64, DisLike>(ctx),
-            categorization: object_table::new<u64, Categorization>(ctx)
+            respondee_post_id: object::uid_to_inner(&post.id)
         };
 
-        let response_posts_length = object_table::length(&post.response_posts) + 1;
-        object_table::add(&mut post.response_posts, response_posts_length, response_post);
+        transfer::share_object(response_post);
     }
 
-    entry fun add_ext_response_post_to_all_ext_response_post(
-        clock: &Clock, 
-        all_ext_response_posts: &mut AllExtResponsePosts, 
+    entry fun create_ext_response_post(
+        clock: &Clock,
         profile: &Profile, 
         message: String,
-        responding_msg_id: String,
+        respondee_post_id: String,
         chain: String,
         ctx: &mut TxContext
     ) {
@@ -412,20 +335,16 @@ module dechat_sui::main {
             timestamp: clock::timestamp_ms(clock),
             message,
             chain,
-            responding_msg_id,
-            likes: object_table::new<u64, Like>(ctx),
-            dislikes: object_table::new<u64, DisLike>(ctx),
-            categorization: object_table::new<u64, Categorization>(ctx)
+            respondee_post_id
         };
 
-        let response_posts_length = object_table::length(&all_ext_response_posts.posts) + 1;
-        object_table::add(&mut all_ext_response_posts.posts, response_posts_length, response_post);
+        transfer::share_object(response_post);
     }
-   
+
     /// @chain should be one of the chain constants listed at top of contract
-    entry fun add_share_post_to_post(
+    entry fun create_share_post(
         clock: &Clock, 
-        post: &mut Post, 
+        post: &Post, 
         profile: &Profile, 
         message: Option<String>,
         ctx: &mut TxContext
@@ -438,21 +357,17 @@ module dechat_sui::main {
             owner: address,
             timestamp: clock::timestamp_ms(clock),
             message,
-            likes: object_table::new<u64, Like>(ctx),
-            dislikes: object_table::new<u64, DisLike>(ctx),
-            categorization: object_table::new<u64, Categorization>(ctx)
+            sharee_post_id: object::uid_to_inner(&post.id)
         };
 
-        let share_posts_length = object_table::length(&post.share_posts) + 1;
-        object_table::add(&mut post.share_posts, share_posts_length, share_post);
+        transfer::share_object(share_post);
     }
 
-    entry fun add_ext_share_post_to_all_ext_share_post(
-        clock: &Clock, 
-        all_ext_share_posts: &mut AllExtSharePosts, 
+    entry fun create_ext_share_post(
+        clock: &Clock,
         profile: &Profile, 
         message: Option<String>,
-        sharing_msg_id: String,
+        sharee_post_id: String,
         chain: String,
         ctx: &mut TxContext
     ) {
@@ -466,14 +381,10 @@ module dechat_sui::main {
             timestamp: clock::timestamp_ms(clock),
             message,
             chain,
-            sharing_msg_id,
-            likes: object_table::new<u64, Like>(ctx),
-            dislikes: object_table::new<u64, DisLike>(ctx),
-            categorization: object_table::new<u64, Categorization>(ctx)
+            sharee_post_id
         };
 
-        let share_posts_length = object_table::length(&all_ext_share_posts.posts) + 1;
-        object_table::add(&mut all_ext_share_posts.posts, share_posts_length, share_post);
+        transfer::share_object(share_post);
     }
 
     #[allow(unused)]
@@ -517,21 +428,6 @@ module dechat_sui::main {
         {
             let admin = test::take_from_address<DechatAdmin>(scenario, admin_addr);
             test::return_to_address<DechatAdmin>(admin_addr, admin);
-
-            let all_posts = test::take_shared<AllPosts>(scenario);
-            test::return_shared(all_posts);
-
-            let all_ext_response_posts = test::take_shared<AllExtResponsePosts>(scenario);
-            test::return_shared(all_ext_response_posts);
-
-            let all_ext_share_posts = test::take_shared<AllExtSharePosts>(scenario);
-            test::return_shared(all_ext_share_posts);
-
-            let all_ext_likes = test::take_shared<AllExtLikes>(scenario);
-            test::return_shared(all_ext_likes);
-
-            let all_ext_dislikes = test::take_shared<AllExtDisLikes>(scenario);
-            test::return_shared(all_ext_dislikes);
         };
         test_scenario::end(original_scenario);
     }
@@ -613,7 +509,7 @@ module dechat_sui::main {
     }
 
     #[test]
-    fun test_add_post_to_all_posts() {
+    fun test_create_post() {
         use sui::test_scenario;
         use sui::test_scenario::{begin, end, next_tx, Self as test};
         use sui::test_utils::assert_eq;
@@ -641,40 +537,32 @@ module dechat_sui::main {
                     color: utf8(b"#ffffff")
                 }
             };
-            let all_posts = AllPosts {
-                id: object::new(ctx),
-                posts: object_table::new<u64, Post>(ctx)
-            };
                         
-            add_post_to_all_posts(&clock, &mut all_posts, &profile, post_message, ctx);
+            create_post(&clock, &profile, post_message, ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
-            transfer::share_object(all_posts);
         };
 
         next_tx(scenario, profile_owner_address);
         {
-            let all_posts = test::take_shared<AllPosts>(scenario);
-            let all_posts_posts_length = object_table::length(&all_posts.posts);
-            let last_post = object_table::borrow(&all_posts.posts, all_posts_posts_length);
-            assert_eq(last_post.message, post_message);
+            let post = test::take_shared<Post>(scenario);
+            assert_eq(post.message, post_message);
 
-            test::return_shared(all_posts);
+            test::return_shared(post);
         };
 
         end(original_scenario);
     }
 
     #[test]
-    fun test_add_like_to_post() {
+    fun test_create_like() {
         use sui::test_scenario;
         use sui::test_scenario::{begin, end, next_tx, Self as test};
         use sui::test_utils::assert_eq;
         use std::option;
 
         let profile_owner_address = @0xCAFE;
-        let liker_address = @0x4067;
 
         let user_name = utf8(b"dave");
         let full_name = utf8(b"David Choi");
@@ -699,15 +587,10 @@ module dechat_sui::main {
                 id: object::new(ctx),
                 owner: profile_owner_address,
                 timestamp: clock::timestamp_ms(&clock),
-                message,
-                response_posts: object_table::new<u64, ResponsePost>(ctx),
-                share_posts: object_table::new<u64, SharePost>(ctx),
-                likes: object_table::new<u64, Like>(ctx),
-                dislikes: object_table::new<u64, DisLike>(ctx),
-                categorization: object_table::new<u64, Categorization>(ctx)
+                message
             };
                         
-            add_like_to_post(&clock, &mut post, &profile, liker_address, ctx);
+            create_like(&clock, &mut post, &profile, ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
@@ -716,27 +599,24 @@ module dechat_sui::main {
 
         next_tx(scenario, profile_owner_address);
         {
-            let post = test::take_shared<Post>(scenario);
-            let post_likes_length = object_table::length(&post.likes);
-            let post_likes = object_table::borrow(&post.likes, post_likes_length);
+            let like = test::take_shared<Like>(scenario);
             
-            assert_eq(post_likes.liker, liker_address);
+            assert_eq(like.liker, profile_owner_address);
 
-            test::return_shared(post);
+            test::return_shared(like);
         };
 
         end(original_scenario);
     }
 
     #[test]
-    fun test_add_dislike_to_post() {
+    fun test_create_dislike() {
         use sui::test_scenario;
         use sui::test_scenario::{begin, end, next_tx, Self as test};
         use sui::test_utils::assert_eq;
         use std::option;
 
         let profile_owner_address = @0xCAFE;
-        let disliker_address = @0x4067;
 
         let user_name = utf8(b"dave");
         let full_name = utf8(b"David Choi");
@@ -761,15 +641,10 @@ module dechat_sui::main {
                 id: object::new(ctx),
                 owner: profile_owner_address,
                 timestamp: clock::timestamp_ms(&clock),
-                message,
-                response_posts: object_table::new<u64, ResponsePost>(ctx),
-                share_posts: object_table::new<u64, SharePost>(ctx),
-                likes: object_table::new<u64, Like>(ctx),
-                dislikes: object_table::new<u64, DisLike>(ctx),
-                categorization: object_table::new<u64, Categorization>(ctx)
+                message
             };
                         
-            add_dislike_to_post(&clock, &mut post, &profile, disliker_address, ctx);
+            create_dislike(&clock, &mut post, &profile, ctx);
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
@@ -778,20 +653,18 @@ module dechat_sui::main {
 
         next_tx(scenario, profile_owner_address);
         {
-            let post = test::take_shared<Post>(scenario);
-            let post_dislikes_length = object_table::length(&post.dislikes);
-            let post_dislike = object_table::borrow(&post.dislikes, post_dislikes_length);
+            let dislike = test::take_shared<DisLike>(scenario);
             
-            assert_eq(post_dislike.disliker, disliker_address);
+            assert_eq(dislike.disliker, profile_owner_address);
 
-            test::return_shared(post);
+            test::return_shared(dislike);
         };
 
         end(original_scenario);
     }
 
     #[test]
-    fun test_add_response_post_to_post() {
+    fun test_create_response_post() {
         use sui::test_scenario;
         use sui::test_scenario::{next_tx, Self as test};
         use sui::test_utils::assert_eq;
@@ -819,51 +692,40 @@ module dechat_sui::main {
                     color: utf8(b"#ffffff")
                 }
             };
-            let all_posts = AllPosts {
-                id: object::new(ctx),
-                posts: object_table::new<u64, Post>(ctx)
-            };
 
-            add_post_to_all_posts(&clock, &mut all_posts, &profile, utf8(b"hello world in post"), ctx);          
+            create_post(&clock, &profile, utf8(b"hello world in post"), ctx);          
 
             clock::destroy_for_testing(clock);
             transfer::share_object(profile);
-            transfer::share_object(all_posts);
         };
 
         next_tx(scenario, profile_owner_address);
         {
             let clock = clock::create_for_testing(test_scenario::ctx(scenario));
             let profile = test::take_shared<Profile>(scenario);
-            let all_posts = test::take_shared<AllPosts>(scenario);
-            let all_posts_posts_length = object_table::length(&all_posts.posts);
-            let post = object_table::borrow_mut(&mut all_posts.posts, all_posts_posts_length);            
+            let post = test::take_shared<Post>(scenario);           
 
-            add_response_post_to_post(&clock, post, &profile, message, test_scenario::ctx(scenario));
+            create_response_post(&clock, &post, &profile, message, test_scenario::ctx(scenario));
 
             clock::destroy_for_testing(clock);
             test::return_shared(profile);
-            test::return_shared(all_posts);
+            test::return_shared(post);
         };
 
         next_tx(scenario, profile_owner_address);
         {
-            let all_posts = test::take_shared<AllPosts>(scenario);
-            let all_posts_posts_length = object_table::length(&all_posts.posts);
-            let post = object_table::borrow_mut(&mut all_posts.posts, all_posts_posts_length); 
-            let post_length = object_table::length(&post.response_posts);
-            let response_post = object_table::borrow(&post.response_posts, post_length);
+            let response_post = test::take_shared<ResponsePost>(scenario);
 
             assert_eq(response_post.message, message);
 
-            test::return_shared(all_posts);
+            test::return_shared(response_post);
         };
       
         test_scenario::end(original_scenario);
     }
 
     #[test]
-    fun test_add_ext_response_post_to_all_ext_response_post() {
+    fun test_create_ext_response_post() {
         use sui::test_scenario;
         use sui::test_scenario::{Self as test, next_tx};
         use sui::test_utils::assert_eq;
@@ -891,14 +753,9 @@ module dechat_sui::main {
                     color: utf8(b"#ffffff")
                 }
             };
-            let all_ext_response_posts = AllExtResponsePosts {
-                id: object::new(ctx),
-                posts: object_table::new<u64, ExtResponsePost>(ctx)
-            };
                         
-            add_ext_response_post_to_all_ext_response_post(
-                &clock, 
-                &mut all_ext_response_posts, 
+            create_ext_response_post(
+                &clock,
                 &profile, 
                 message, 
                 utf8(b"123"),
@@ -908,31 +765,27 @@ module dechat_sui::main {
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
-            transfer::share_object(all_ext_response_posts);
         };
 
         next_tx(scenario, profile_owner_address);
         {
-            let all_ext_response_posts = test::take_shared<AllExtResponsePosts>(scenario);
-            let all_ext_response_posts_length = object_table::length(&all_ext_response_posts.posts);
-            let response_post = object_table::borrow(&all_ext_response_posts.posts, all_ext_response_posts_length);
-            assert_eq(response_post.message, message);
+            let ext_response_post = test::take_shared<ExtResponsePost>(scenario);
+            assert_eq(ext_response_post.message, message);
 
-            test::return_shared(all_ext_response_posts);
+            test::return_shared(ext_response_post);
         };
 
         test_scenario::end(original_scenario);
     }
 
     #[test]
-    fun test_add_ext_like_to_post() {
+    fun test_create_ext_like() {
         use sui::test_scenario;
         use sui::test_scenario::{begin, end, next_tx, Self as test};
         use sui::test_utils::assert_eq;
         use std::option;
 
         let profile_owner_address = @0xCAFE;
-        let liker_address = @0x4067;
 
         let user_name = utf8(b"dave");
         let full_name = utf8(b"David Choi");
@@ -953,49 +806,39 @@ module dechat_sui::main {
                     color: utf8(b"#ffffff")
                 }
             };
-            let all_ext_likes = AllExtLikes {
-                id: object::new(ctx),
-                likes: object_table::new<u64, ExtLike>(ctx)
-            };
                         
-            add_ext_like_to_post(
-                &clock, 
-                &mut all_ext_likes, 
+            create_ext_like(
+                &clock,
                 &profile, 
-                utf8(b"aptos"), 
-                liker_address, 
-                utf8(b"123"),
+                utf8(b"aptos"),
+                utf8(b"post_id123"),
                 ctx
             );
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
-            transfer::share_object(all_ext_likes);
         };
 
         next_tx(scenario, profile_owner_address);
         {
-            let all_ext_likes = test::take_shared<AllExtLikes>(scenario);
-            let ext_likes_length = object_table::length(&all_ext_likes.likes);
-            let like = object_table::borrow(&all_ext_likes.likes, ext_likes_length);
+            let ext_like = test::take_shared<ExtLike>(scenario);
             
-            assert_eq(like.liker, liker_address);
+            assert_eq(ext_like.liker, profile_owner_address);
 
-            test::return_shared(all_ext_likes);
+            test::return_shared(ext_like);
         };
 
         end(original_scenario);
     }
 
     #[test]
-    fun test_add_ext_dislike_to_post() {
+    fun test_create_ext_dislike() {
         use sui::test_scenario;
         use sui::test_scenario::{begin, end, next_tx, Self as test};
         use sui::test_utils::assert_eq;
         use std::option;
 
         let profile_owner_address = @0xCAFE;
-        let dis_liker_address = @0x4067;
 
         let user_name = utf8(b"dave");
         let full_name = utf8(b"David Choi");
@@ -1016,42 +859,33 @@ module dechat_sui::main {
                     color: utf8(b"#ffffff")
                 }
             };
-            let all_ext_dislikes = AllExtDisLikes {
-                id: object::new(ctx),
-                dislikes: object_table::new<u64, ExtDisLike>(ctx)
-            };
                         
-            add_ext_dislike_to_post(
-                &clock, 
-                &mut all_ext_dislikes, 
+            create_ext_dislike(
+                &clock,
                 &profile, 
-                utf8(b"aptos"), 
-                dis_liker_address, 
-                utf8(b"123"),
+                utf8(b"aptos"),
+                utf8(b"post_id123"),
                 ctx
             );
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
-            transfer::share_object(all_ext_dislikes);
         };
 
         next_tx(scenario, profile_owner_address);
         {
-            let all_ext_dislikes = test::take_shared<AllExtDisLikes>(scenario);
-            let ext_dislikes_length = object_table::length(&all_ext_dislikes.dislikes);
-            let dislike = object_table::borrow(&all_ext_dislikes.dislikes, ext_dislikes_length);
+            let ext_dislike = test::take_shared<ExtDisLike>(scenario);
             
-            assert_eq(dislike.disliker, dis_liker_address);
+            assert_eq(ext_dislike.disliker, profile_owner_address);
 
-            test::return_shared(all_ext_dislikes);
+            test::return_shared(ext_dislike);
         };
 
         end(original_scenario);
     }
 
     #[test]
-    fun test_add_share_post_to_post() {
+    fun test_create_share_post() {
         use sui::test_scenario;
         use sui::test_scenario::{Self as test, next_tx};
         use sui::test_utils::assert_eq;
@@ -1080,51 +914,38 @@ module dechat_sui::main {
                 }
             };
 
-            let all_posts = AllPosts {
-                id: object::new(ctx),
-                posts: object_table::new<u64, Post>(ctx)
-            };
-            add_post_to_all_posts(&clock, &mut all_posts, &profile, message, ctx);
+            create_post(&clock, &profile, message, ctx);
                         
-            clock::destroy_for_testing(clock);
-            transfer::share_object(all_posts);            
+            clock::destroy_for_testing(clock);          
             transfer::share_object(profile);
         };
 
         next_tx(scenario, profile_owner_address);
         {
             let clock = clock::create_for_testing(test_scenario::ctx(scenario));
-
-            let all_posts = test::take_shared<AllPosts>(scenario);
             let profile = test::take_shared<Profile>(scenario);
-            let posts_length = object_table::length(&all_posts.posts);
-            let post = object_table::borrow_mut(&mut all_posts.posts, posts_length);
+            let post = test::take_shared<Post>(scenario);
 
-            add_share_post_to_post(&clock, post, &profile, option::some(message), test_scenario::ctx(scenario));            
+            create_share_post(&clock, &post, &profile, option::some(message), test_scenario::ctx(scenario));            
             
-            clock::destroy_for_testing(clock);
-            test::return_shared(all_posts);
+            clock::destroy_for_testing(clock);            
             test::return_shared(profile);
+            test::return_shared(post);
         };
 
         next_tx(scenario, profile_owner_address);
-        {          
-            let all_posts = test::take_shared<AllPosts>(scenario);
-            let posts_length = object_table::length(&all_posts.posts);
-            let post = object_table::borrow_mut(&mut all_posts.posts, posts_length);
-
-            let share_posts_length = object_table::length(&post.share_posts);
-            let share_post = object_table::borrow(&post.share_posts, share_posts_length);
+        {
+            let share_post = test::take_shared<SharePost>(scenario);
             assert_eq(share_post.message, option::some(message));
 
-            test::return_shared(all_posts);
+            test::return_shared(share_post);
         };        
         
         test_scenario::end(original_scenario);
     }
 
     #[test]
-    fun test_add_ext_share_post_to_all_ext_share_post() {
+    fun test_create_ext_share_post() {
         use sui::test_scenario;
         use sui::test_scenario::{Self as test, next_tx};
         use sui::test_utils::assert_eq;
@@ -1152,14 +973,9 @@ module dechat_sui::main {
                     color: utf8(b"#ffffff")
                 }
             };
-            let all_ext_share_posts = AllExtSharePosts {
-                id: object::new(ctx),
-                posts: object_table::new<u64, ExtSharePost>(ctx)
-            };
                         
-            add_ext_share_post_to_all_ext_share_post(
-                &clock, 
-                &mut all_ext_share_posts, 
+            create_ext_share_post(
+                &clock,
                 &profile, 
                 message, 
                 utf8(b"123"),
@@ -1169,18 +985,15 @@ module dechat_sui::main {
 
             clock::destroy_for_testing(clock);
             transfer::transfer(profile, profile_owner_address);
-            transfer::share_object(all_ext_share_posts);
         };
 
         next_tx(scenario, profile_owner_address);
         {
-            let all_ext_share_posts = test::take_shared<AllExtSharePosts>(scenario);
-            let all_ext_share_posts_posts_length = object_table::length(&all_ext_share_posts.posts);
-            let share_post = object_table::borrow(&all_ext_share_posts.posts, all_ext_share_posts_posts_length);
+            let ext_share_post = test::take_shared<ExtSharePost>(scenario);
 
-            assert_eq(share_post.message, message);
+            assert_eq(ext_share_post.message, message);
 
-            test::return_shared(all_ext_share_posts);
+            test::return_shared(ext_share_post);
         };
 
         test_scenario::end(original_scenario);
