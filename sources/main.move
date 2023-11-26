@@ -6,6 +6,7 @@ module dechat_sui::main {
     use sui::object_table;
     use sui::object_table::ObjectTable;
     use sui::clock::{Self, Clock};
+    use sui::event;
     use std::string::{Self, String, utf8};
     use std::option;
     use std::vector;
@@ -62,6 +63,10 @@ module dechat_sui::main {
         full_name: String,
         description: Option<String>,
         profile_flag: ProfileFlag
+    }
+
+    struct CreateProfileEvent has copy, drop {
+        profile_id: ID
     }
 
     /// u64 key represents an index value
@@ -188,7 +193,10 @@ module dechat_sui::main {
             }
         };
 
-        transfer::share_object(profile);
+        event::emit(CreateProfileEvent {
+            profile_id: object::uid_to_inner(&profile.id)
+        });
+        transfer::share_object(profile);        
     }
  
     entry fun create_post(
