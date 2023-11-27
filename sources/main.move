@@ -5,13 +5,12 @@ module dechat_sui::main {
     use sui::tx_context::{Self, TxContext};
     use sui::clock::{Self, Clock};
     use std::string::{Self, String, utf8};
-    use std::option;
-    use std::vector;
     use std::option::Option;
     use dechat_sui::profile;
-    use dechat_sui::profile::{get_profile_user_name, get_profile_full_name, Profile};
+    use dechat_sui::post;
+    use dechat_sui::post::{Post, get_post_id, get_new_post};
+    use dechat_sui::utils::{get_supporting_chain, ExternalChain};
     
-
     struct MAIN has drop {}
 
     struct DechatAdmin has key {
@@ -23,20 +22,7 @@ module dechat_sui::main {
         timestamp: u64,
         version: String
     }
-
-    #[allow(unused)]
-    const SUI: vector<u8> = b"sui";
-    const APTOS: vector<u8> = b"aptos";
-    const COSMOS: vector<u8> = b"cosmos";
-    #[allow(unused)]
-    const ARWEAVE: vector<u8> = b"arweave";
-
-    struct ExternalChain has store {
-        aptos: bool,
-        cosmos: bool,
-        arweave: bool
-    }
-
+   
     struct Categorization has key, store {
         id: UID,
         post_id: Option<ID>,
@@ -48,61 +34,6 @@ module dechat_sui::main {
         sexual_content: bool,
         violence: bool,
         otherwise_offensive: bool,
-    }
-
-    /// color hex value
-    struct ProfileFlag has store {
-        color: String
-    }
-
-    /// u64 key represents an index value
-    struct Post has key, store {
-        id: UID,
-        owner: address,
-        timestamp: u64,
-        message: String        
-    }
-
-    /// On-chain response post object
-    struct ResponsePost has key, store {
-        id: UID,
-        owner: address,
-        timestamp: u64,
-        message: String,
-        respondee_post_id: ID
-    }
-
-    /// Post that responds to a post on an external chain
-    /// owner stringified external address
-    /// responding_msg_id stringified external data id or address
-    struct ExtResponsePost has key, store {
-        id: UID,
-        owner: address,
-        timestamp: u64,
-        message: String,
-        chain: ExternalChain,
-        respondee_post_id: String
-    }
-    
-    /// On-chain post sharing object
-    struct SharePost has key, store {
-        id: UID,
-        owner: address,
-        timestamp: u64,
-        message: Option<String>,
-        sharee_post_id: ID
-    }
-
-    /// Share Post to external foreign chain Posts
-    /// owner stringified external address
-    /// sharing_msg_id stringified external data id or address
-    struct ExtSharePost has key, store {
-        id: UID,
-        owner: address,
-        timestamp: u64,
-        message: Option<String>,
-        chain: ExternalChain,
-        sharee_post_id: String
     }
 
     /// likes on sui chain
@@ -174,15 +105,7 @@ module dechat_sui::main {
         message: String, 
         ctx: &mut TxContext
     ) {
-        let post_id = object::new(ctx);
-        let post = Post {
-            id: post_id,
-            owner: tx_context::sender(ctx),
-            timestamp: clock::timestamp_ms(clock),
-            message
-        };
-
-        transfer::share_object(post);
+        post::create_post(clock, message, ctx);
     }
 
     entry fun create_like(
@@ -194,7 +117,7 @@ module dechat_sui::main {
             id: object::new(ctx),
             timestamp: clock::timestamp_ms(clock),
             liker: tx_context::sender(ctx),
-            post_id: object::uid_to_inner(&post.id)
+            post_id: get_post_id(post)
         };
 
         transfer::share_object(like);
@@ -226,7 +149,7 @@ module dechat_sui::main {
             id: object::new(ctx),
             timestamp: clock::timestamp_ms(clock),
             disliker: tx_context::sender(ctx),
-            post_id: object::uid_to_inner(&post.id)
+            post_id: get_post_id(post)
         };
 
         transfer::share_object(dislike);
@@ -255,15 +178,7 @@ module dechat_sui::main {
         message: String,
         ctx: &mut TxContext
     ) {
-        let response_post = ResponsePost {
-            id: object::new(ctx),
-            owner: tx_context::sender(ctx),
-            timestamp: clock::timestamp_ms(clock),
-            message,
-            respondee_post_id: object::uid_to_inner(&post.id)
-        };
-
-        transfer::share_object(response_post);
+        post::create_response_post(clock, post, message, ctx);
     }
 
     entry fun create_ext_response_post(
@@ -273,17 +188,7 @@ module dechat_sui::main {
         chain: String,
         ctx: &mut TxContext
     ) {
-        let chain = get_supporting_chain(chain);
-        let response_post = ExtResponsePost {
-            id: object::new(ctx),
-            owner: tx_context::sender(ctx),
-            timestamp: clock::timestamp_ms(clock),
-            message,
-            chain,
-            respondee_post_id
-        };
-
-        transfer::share_object(response_post);
+        post::create_ext_response_post(clock, message, respondee_post_id, chain, ctx);
     }
 
     /// @chain should be one of the chain constants listed at top of contract
@@ -293,15 +198,7 @@ module dechat_sui::main {
         message: Option<String>,
         ctx: &mut TxContext
     ) {
-        let share_post = SharePost {
-            id: object::new(ctx),
-            owner: tx_context::sender(ctx),
-            timestamp: clock::timestamp_ms(clock),
-            message,
-            sharee_post_id: object::uid_to_inner(&post.id)
-        };
-
-        transfer::share_object(share_post);
+        post::create_share_post(clock, post, message, ctx);
     }
 
     entry fun create_ext_share_post(
@@ -311,42 +208,8 @@ module dechat_sui::main {
         chain: String,
         ctx: &mut TxContext
     ) {
-        let chain = get_supporting_chain(chain);
-        let share_post = ExtSharePost {
-            id: object::new(ctx),
-            owner: tx_context::sender(ctx),
-            timestamp: clock::timestamp_ms(clock),
-            message,
-            chain,
-            sharee_post_id
-        };
-
-        transfer::share_object(share_post);
-    }
-
-    #[allow(unused)]
-    fun get_supporting_chain(chain: String): ExternalChain {
-        if (chain == utf8(APTOS)) {
-            ExternalChain {
-                
-                aptos: true,
-                cosmos: false,
-                arweave: false
-            }
-        } else if (chain == utf8(COSMOS)) {
-            ExternalChain {
-                aptos: false,
-                cosmos: true,
-                arweave: false
-            }
-        } else {
-            ExternalChain {
-                aptos: false,
-                cosmos: false,
-                arweave: true
-            }
-        }
-    }
+        post::create_ext_share_post(clock, message, sharee_post_id, chain, ctx);
+    }    
     
     #[test]
     fun test_init() {        
@@ -412,72 +275,6 @@ module dechat_sui::main {
     }
 
     #[test]
-    fun test_create_profile() {
-        use sui::test_scenario;
-        use sui::test_scenario::{Self as test};
-        use sui::test_utils::assert_eq;
-        use std::option;
-
-        let admin = @0xBABE;
-        let profile_owner = @0xCAFE;
-        let user_name = utf8(b"dave");
-        let full_name = utf8(b"David Choi");
-
-        let original_scenario = test_scenario::begin(admin);
-        let scenario = &mut original_scenario;
-        {
-            init(MAIN{}, test_scenario::ctx(scenario));
-        };
-
-        test_scenario::next_tx(scenario, profile_owner);
-        {            
-            create_profile(user_name, full_name, option::none(), test_scenario::ctx(scenario))
-        };
-
-        test_scenario::next_tx(scenario, profile_owner);
-        {
-            let profile = test::take_shared<Profile>(scenario);
-            assert_eq(get_profile_user_name(&profile), user_name);
-            assert_eq(get_profile_full_name(&profile), full_name);
-            test::return_shared(profile);
-        };
-
-        test_scenario::end(original_scenario);
-    }
-
-    #[test]
-    fun test_create_post() {
-        use sui::test_scenario;
-        use sui::test_scenario::{begin, end, next_tx, Self as test};
-        use sui::test_utils::assert_eq;
-
-        let profile_owner_address = @0xCAFE;
-
-        let post_message = utf8(b"hello world");
-
-        let original_scenario = begin(profile_owner_address);
-        let scenario = &mut original_scenario;
-        {
-            let ctx = test_scenario::ctx(scenario);
-            let clock = clock::create_for_testing(ctx);            
-            
-            create_post(&clock, post_message, ctx);
-
-            clock::destroy_for_testing(clock);
-        };
-
-        next_tx(scenario, profile_owner_address);
-        {
-            let post = test::take_shared<Post>(scenario);
-            assert_eq(post.message, post_message);
-
-            test::return_shared(post);
-        };
-
-        end(original_scenario);
-    }
-
-    #[test]
     fun test_create_like() {
         use sui::test_scenario;
         use sui::test_scenario::{begin, end, next_tx, Self as test};
@@ -491,17 +288,12 @@ module dechat_sui::main {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);            
             let message = utf8(b"hello world");
-            let post = Post {
-                id: object::new(ctx),
-                owner: profile_owner_address,
-                timestamp: clock::timestamp_ms(&clock),
-                message
-            };
+            let post = get_new_post(profile_owner_address, clock::timestamp_ms(&clock), message, ctx);
                         
             create_like(&clock, &post, ctx);
 
             clock::destroy_for_testing(clock);
-            transfer::share_object(post);
+            transfer::public_transfer(post, profile_owner_address);
         };
 
         next_tx(scenario, profile_owner_address);
@@ -530,17 +322,12 @@ module dechat_sui::main {
             let ctx = test_scenario::ctx(scenario);
             let clock = clock::create_for_testing(ctx);            
             let message = utf8(b"hello world");
-            let post = Post {
-                id: object::new(ctx),
-                owner: profile_owner_address,
-                timestamp: clock::timestamp_ms(&clock),
-                message
-            };
+            let post = get_new_post(profile_owner_address, clock::timestamp_ms(&clock), message, ctx);
                         
             create_dislike(&clock, &post, ctx);
 
             clock::destroy_for_testing(clock);
-            transfer::share_object(post);
+            transfer::public_transfer(post, profile_owner_address);
         };
 
         next_tx(scenario, profile_owner_address);
@@ -553,89 +340,7 @@ module dechat_sui::main {
         };
 
         end(original_scenario);
-    }
-
-    #[test]
-    fun test_create_response_post() {
-        use sui::test_scenario;
-        use sui::test_scenario::{next_tx, Self as test};
-        use sui::test_utils::assert_eq;
-
-        let profile_owner_address = @0xCAFE;
-
-        let message = utf8(b"hello world");
-
-        let original_scenario = test_scenario::begin(profile_owner_address);
-        let scenario = &mut original_scenario;
-        {
-            let ctx = test_scenario::ctx(scenario);
-            let clock = clock::create_for_testing(ctx);  
-
-            create_post(&clock, utf8(b"hello world in post"), ctx);          
-
-            clock::destroy_for_testing(clock);
-        };
-
-        next_tx(scenario, profile_owner_address);
-        {
-            let clock = clock::create_for_testing(test_scenario::ctx(scenario));
-            let post = test::take_shared<Post>(scenario);           
-
-            create_response_post(&clock, &post, message, test_scenario::ctx(scenario));
-
-            clock::destroy_for_testing(clock);
-            test::return_shared(post);
-        };
-
-        next_tx(scenario, profile_owner_address);
-        {
-            let response_post = test::take_shared<ResponsePost>(scenario);
-
-            assert_eq(response_post.message, message);
-
-            test::return_shared(response_post);
-        };
-      
-        test_scenario::end(original_scenario);
-    }
-
-    #[test]
-    fun test_create_ext_response_post() {
-        use sui::test_scenario;
-        use sui::test_scenario::{Self as test, next_tx};
-        use sui::test_utils::assert_eq;
-
-        let profile_owner_address = @0xCAFE;
-
-        let message = utf8(b"hello world");
-
-        let original_scenario = test_scenario::begin(profile_owner_address);
-        let scenario = &mut original_scenario;
-        {
-            let ctx = test_scenario::ctx(scenario);
-            let clock = clock::create_for_testing(ctx);            
-                        
-            create_ext_response_post(
-                &clock,
-                message, 
-                utf8(b"123"),
-                utf8(APTOS),
-                ctx
-            );
-
-            clock::destroy_for_testing(clock);
-        };
-
-        next_tx(scenario, profile_owner_address);
-        {
-            let ext_response_post = test::take_shared<ExtResponsePost>(scenario);
-            assert_eq(ext_response_post.message, message);
-
-            test::return_shared(ext_response_post);
-        };
-
-        test_scenario::end(original_scenario);
-    }
+    }     
 
     #[test]
     fun test_create_ext_like() {
@@ -707,89 +412,5 @@ module dechat_sui::main {
         };
 
         end(original_scenario);
-    }
-
-    #[test]
-    fun test_create_share_post() {
-        use sui::test_scenario;
-        use sui::test_scenario::{Self as test, next_tx};
-        use sui::test_utils::assert_eq;
-        use std::option;
-
-        let profile_owner_address = @0xCAFE;
-
-        let message = utf8(b"hello world");          
-
-        let original_scenario = test_scenario::begin(profile_owner_address);
-        let scenario = &mut original_scenario;
-        {       
-            let ctx = test_scenario::ctx(scenario);                      
-            let clock = clock::create_for_testing(ctx);
-            
-            create_post(&clock, message, ctx);
-                        
-            clock::destroy_for_testing(clock);    
-        };
-
-        next_tx(scenario, profile_owner_address);
-        {
-            let clock = clock::create_for_testing(test_scenario::ctx(scenario));
-            let post = test::take_shared<Post>(scenario);
-
-            create_share_post(&clock, &post, option::some(message), test_scenario::ctx(scenario));            
-            
-            clock::destroy_for_testing(clock);   
-            test::return_shared(post);
-        };
-
-        next_tx(scenario, profile_owner_address);
-        {
-            let share_post = test::take_shared<SharePost>(scenario);
-            assert_eq(share_post.message, option::some(message));
-
-            test::return_shared(share_post);
-        };        
-        
-        test_scenario::end(original_scenario);
-    }
-
-    #[test]
-    fun test_create_ext_share_post() {
-        use sui::test_scenario;
-        use sui::test_scenario::{Self as test, next_tx};
-        use sui::test_utils::assert_eq;
-        use std::option;
-
-        let profile_owner_address = @0xCAFE;
-
-        let message = option::some(utf8(b"hello world"));
-
-        let original_scenario = test_scenario::begin(profile_owner_address);
-        let scenario = &mut original_scenario;
-        {
-            let ctx = test_scenario::ctx(scenario);
-            let clock = clock::create_for_testing(ctx);
-                        
-            create_ext_share_post(
-                &clock,
-                message, 
-                utf8(b"123"),
-                utf8(APTOS),
-                ctx
-            );
-
-            clock::destroy_for_testing(clock);
-        };
-
-        next_tx(scenario, profile_owner_address);
-        {
-            let ext_share_post = test::take_shared<ExtSharePost>(scenario);
-
-            assert_eq(ext_share_post.message, message);
-
-            test::return_shared(ext_share_post);
-        };
-
-        test_scenario::end(original_scenario);
-    }
+    }    
 }

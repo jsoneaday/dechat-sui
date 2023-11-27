@@ -8,6 +8,7 @@ module dechat_sui::profile {
     use std::string::{String, utf8};
 
     friend dechat_sui::main;
+    friend dechat_sui::profile_tests;
 
     /// color hex value
     struct ProfileFlag has store {
