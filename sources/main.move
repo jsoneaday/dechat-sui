@@ -8,8 +8,7 @@ module dechat_sui::main {
     use std::option::Option;
     use dechat_sui::profile;
     use dechat_sui::post;
-    use dechat_sui::post::{Post, get_post_id, get_new_post};
-    use dechat_sui::utils::{get_supporting_chain};
+    use dechat_sui::post::Post;
     use dechat_sui::like;
     
     struct MAIN has drop {}

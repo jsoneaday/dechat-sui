@@ -3,7 +3,20 @@ module dechat_sui::like_tests {
     use sui::clock;
     use sui::transfer;
     use dechat_sui::post::{get_new_post};
-    use dechat_sui::like::{Like, DisLike, ExtLike, ExtDisLike, create_like, create_dislike, create_ext_like, create_ext_dislike};
+    use dechat_sui::like::{
+        Like, 
+        DisLike, 
+        ExtLike, 
+        ExtDisLike, 
+        create_like, 
+        create_dislike, 
+        create_ext_like, 
+        create_ext_dislike,
+        get_like_liker,
+        get_dislike_disliker,
+        get_ext_like_liker,
+        get_ext_dislike_disliker
+    };
     use std::string::utf8;
 
 
@@ -33,7 +46,7 @@ module dechat_sui::like_tests {
         {
             let like = test::take_shared<Like>(scenario);
             
-            assert_eq(like.liker, profile_owner_address);
+            assert_eq(get_like_liker(&like), profile_owner_address);
 
             test::return_shared(like);
         };
@@ -67,7 +80,7 @@ module dechat_sui::like_tests {
         {
             let dislike = test::take_shared<DisLike>(scenario);
             
-            assert_eq(dislike.disliker, profile_owner_address);
+            assert_eq(get_dislike_disliker(&dislike), profile_owner_address);
 
             test::return_shared(dislike);
         };
@@ -103,7 +116,7 @@ module dechat_sui::like_tests {
         {
             let ext_like = test::take_shared<ExtLike>(scenario);
             
-            assert_eq(ext_like.liker, profile_owner_address);
+            assert_eq(get_ext_like_liker(&ext_like), profile_owner_address);
 
             test::return_shared(ext_like);
         };
@@ -139,7 +152,7 @@ module dechat_sui::like_tests {
         {
             let ext_dislike = test::take_shared<ExtDisLike>(scenario);
             
-            assert_eq(ext_dislike.disliker, profile_owner_address);
+            assert_eq(get_ext_dislike_disliker(&ext_dislike), profile_owner_address);
 
             test::return_shared(ext_dislike);
         };

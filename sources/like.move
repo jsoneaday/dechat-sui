@@ -45,6 +45,22 @@ module dechat_sui::like {
         post_id: String
     }
 
+    public(friend) fun get_like_liker(like: &Like): address {
+        like.liker
+    }
+
+    public(friend) fun get_dislike_disliker(dislike: &DisLike): address {
+        dislike.disliker
+    }
+
+    public(friend) fun get_ext_like_liker(ext_like: &ExtLike): address {
+        ext_like.liker
+    }
+
+    public(friend) fun get_ext_dislike_disliker(ext_dislike: &ExtDisLike): address {
+        ext_dislike.disliker
+    }
+
     public(friend) fun create_like(
         clock: &Clock,
         post: &Post,

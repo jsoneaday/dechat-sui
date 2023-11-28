@@ -1,4 +1,5 @@
-module dechat_sui::utils {
+#[allow(unused_use)]
+module dechat_sui::utils {    
     use sui::object::{Self, UID, ID};
     use std::string::{String, utf8};
     use std::option::Option;
@@ -21,6 +22,7 @@ module dechat_sui::utils {
         arweave: bool
     }
 
+    #[allow(unused)]
     struct Categorization has key, store {
         id: UID,
         post_id: Option<ID>,
