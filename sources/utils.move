@@ -1,9 +1,12 @@
 module dechat_sui::utils {
+    use sui::object::{Self, UID, ID};
     use std::string::{String, utf8};
+    use std::option::Option;
 
     friend dechat_sui::main;
     friend dechat_sui::post;
     friend dechat_sui::post_tests;
+    friend dechat_sui::like;
 
     #[allow(unused)]
     const SUI: vector<u8> = b"sui";
@@ -16,6 +19,19 @@ module dechat_sui::utils {
         aptos: bool,
         cosmos: bool,
         arweave: bool
+    }
+
+    struct Categorization has key, store {
+        id: UID,
+        post_id: Option<ID>,
+        ext_post_id: Option<String>,
+        normal: bool,        
+        lie: bool,
+        misleading: bool,        
+        nudity: bool,
+        sexual_content: bool,
+        violence: bool,
+        otherwise_offensive: bool,
     }
 
     #[allow(unused)]

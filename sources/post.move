@@ -9,7 +9,9 @@ module dechat_sui::post {
     use std::option::Option;
 
     friend dechat_sui::main;
-    friend dechat_sui::post_tests;
+    friend dechat_sui::like;
+    friend dechat_sui::like_tests;
+    friend dechat_sui::post_tests;    
 
     struct Post has key, store {
         id: UID,
