@@ -6,7 +6,6 @@ module dechat_sui::utils {
 
     friend dechat_sui::main;
     friend dechat_sui::post;
-    friend dechat_sui::post_tests;
     friend dechat_sui::like;
 
     #[allow(unused)]
