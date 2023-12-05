@@ -5,74 +5,65 @@ module dechat_sui::post {
     use sui::transfer;
     use sui::tx_context;
     use sui::tx_context::TxContext;
-    use dechat_sui::utils::{get_supporting_chain, ExternalChain};
+    use dechat_sui::utils::{get_supporting_chain, get_new_categorization, ExternalChain, Categorization};
     use std::string::{String, utf8};    
     use std::option::Option;
 
     friend dechat_sui::main;
     friend dechat_sui::like; 
 
-    struct Post has key, store {
-        id: UID,
-        owner: address,
-        timestamp: u64,
-        message: String        
-    }
-
-    /// On-chain response post object
-    struct ResponsePost has key, store {
+    struct Post has key {
         id: UID,
         owner: address,
         timestamp: u64,
         message: String,
-        respondee_post_id: ID
+        categorization: Categorization
+    }
+
+    /// On-chain response post object
+    struct ResponsePost has key {
+        id: UID,
+        owner: address,
+        timestamp: u64,
+        message: String,
+        respondee_post_id: ID,
+        categorization: Categorization
     }
 
     /// Post that responds to a post on an external chain
     /// owner stringified external address
     /// responding_msg_id stringified external data id or address
-    struct ExtResponsePost has key, store {
+    struct ExtResponsePost has key {
         id: UID,
         owner: address,
         timestamp: u64,
         message: String,
         chain: ExternalChain,
-        respondee_post_id: String
+        respondee_post_id: String,
+        categorization: Categorization
     }
     
     /// On-chain post sharing object
-    struct SharePost has key, store {
+    struct SharePost has key {
         id: UID,
         owner: address,
         timestamp: u64,
         message: Option<String>,
-        sharee_post_id: ID
+        sharee_post_id: ID,
+        categorization: Categorization
     }
 
     /// Share Post to external foreign chain Posts
     /// owner stringified external address
     /// sharing_msg_id stringified external data id or address
-    struct ExtSharePost has key, store {
+    struct ExtSharePost has key {
         id: UID,
         owner: address,
         timestamp: u64,
         message: Option<String>,
         chain: ExternalChain,
-        sharee_post_id: String
-    }
-
-    public(friend) fun get_new_post(
-        owner: address,
-        timestamp: u64,
-        message: String,
-        ctx: &mut TxContext
-    ): Post {
-        Post {
-            id: object::new(ctx),
-            owner,
-            timestamp,
-            message
-        }
+        sharee_post_id: String,
+        categorization: Categorization
     }
 
     public(friend) fun get_post_id(post: &Post): ID {
@@ -101,14 +92,15 @@ module dechat_sui::post {
 
     public(friend) fun create_post(
         clock: &Clock,
-        message: String, 
+        message: String,
         ctx: &mut TxContext
     ) {
         let post = Post {
             id: object::new(ctx),
             owner: tx_context::sender(ctx),
             timestamp: clock::timestamp_ms(clock),
-            message
+            message,
+            categorization: get_new_categorization()
         };
 
         transfer::share_object(post);
@@ -125,7 +117,8 @@ module dechat_sui::post {
             owner: tx_context::sender(ctx),
             timestamp: clock::timestamp_ms(clock),
             message,
-            respondee_post_id: object::uid_to_inner(&post.id)
+            respondee_post_id: object::uid_to_inner(&post.id),
+            categorization: get_new_categorization()
         };
 
         transfer::share_object(response_post);
@@ -144,7 +137,8 @@ module dechat_sui::post {
             timestamp: clock::timestamp_ms(clock),
             message,
             chain: get_supporting_chain(chain),
-            respondee_post_id
+            respondee_post_id,
+            categorization: get_new_categorization()
         };
 
         transfer::share_object(response_post);
@@ -162,7 +156,8 @@ module dechat_sui::post {
             owner: tx_context::sender(ctx),
             timestamp: clock::timestamp_ms(clock),
             message,
-            sharee_post_id: object::uid_to_inner(&post.id)
+            sharee_post_id: object::uid_to_inner(&post.id),
+            categorization: get_new_categorization()
         };
 
         transfer::share_object(share_post);
@@ -181,7 +176,8 @@ module dechat_sui::post {
             timestamp: clock::timestamp_ms(clock),
             message,
             chain: get_supporting_chain(chain),
-            sharee_post_id
+            sharee_post_id,
+            categorization: get_new_categorization()
         };
 
         transfer::share_object(share_post);

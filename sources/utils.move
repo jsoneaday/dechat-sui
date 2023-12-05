@@ -1,8 +1,7 @@
 #[allow(unused_use)]
 module dechat_sui::utils {    
-    use sui::object::{Self, UID, ID};
+    use sui::object::Self;
     use std::string::{String, utf8};
-    use std::option::Option;
 
     friend dechat_sui::main;
     friend dechat_sui::post;
@@ -22,10 +21,7 @@ module dechat_sui::utils {
     }
 
     #[allow(unused)]
-    struct Categorization has key, store {
-        id: UID,
-        post_id: Option<ID>,
-        ext_post_id: Option<String>,
+    struct Categorization has store {
         normal: bool,        
         lie: bool,
         misleading: bool,        
@@ -35,11 +31,22 @@ module dechat_sui::utils {
         otherwise_offensive: bool,
     }
 
+    public(friend) fun get_new_categorization(): Categorization {
+        Categorization {
+            normal: true,
+            lie: false,
+            misleading: false,        
+            nudity: false,
+            sexual_content: false,
+            violence: false,
+            otherwise_offensive: false
+        }
+    }
+
     #[allow(unused)]
     public(friend) fun get_supporting_chain(chain: String): ExternalChain {
         if (chain == utf8(APTOS)) {
-            ExternalChain {
-                
+            ExternalChain {                
                 aptos: true,
                 cosmos: false,
                 arweave: false

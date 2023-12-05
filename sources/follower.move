@@ -3,17 +3,17 @@ module dechat_sui::follower {
     use sui::tx_context::TxContext;
     use sui::transfer;
     use sui::event;
-    use std::string::{String, utf8};
+    use std::string::String;
 
     friend dechat_sui::main;
 
-    struct Follower has key, store {
+    struct Follower has key {
         id: UID,
         profile_follower_id: ID,
         profile_followee_id: ID
     }
 
-    struct ExtFollower has key, store {
+    struct ExtFollower has key {
         id: UID,
         profile_follower_id: ID,
         profile_followee_id: String
@@ -97,6 +97,7 @@ module dechat_sui::follower {
     fun test_create_ext_follower() {
         use sui::test_scenario;
         use sui::test_scenario::{Self as test};
+        use std::string::utf8;
 
         let profile_follower = @0xCAFE;
 

@@ -4,14 +4,14 @@ module dechat_sui::like {
     use sui::tx_context::{Self, TxContext};
     use sui::clock::{Self, Clock};
     use sui::transfer;
-    use dechat_sui::post::{get_post_id, get_new_post, Post};
+    use dechat_sui::post::{get_post_id, create_post, Post};
     use dechat_sui::utils::{get_supporting_chain, ExternalChain};
     use std::string::{utf8, String};
     
     friend dechat_sui::main;
 
     /// likes on sui chain
-    struct Like has key, store {
+    struct Like has key {
         id: UID,
         timestamp: u64,
         liker: address,
@@ -19,7 +19,7 @@ module dechat_sui::like {
     }
 
     /// dislikes on sui chain
-    struct DisLike has key, store {
+    struct DisLike has key {
         id: UID,
         timestamp: u64,
         disliker: address,
@@ -29,7 +29,7 @@ module dechat_sui::like {
     /// likes on foreign chain
     /// liker can be id or address
     /// target asset or address being liked
-    struct ExtLike has key, store {
+    struct ExtLike has key {
         id: UID,
         timestamp: u64,
         chain: ExternalChain,
@@ -37,7 +37,7 @@ module dechat_sui::like {
         post_id: String
     }
 
-    struct ExtDisLike has key, store {
+    struct ExtDisLike has key {
         id: UID,
         timestamp: u64,
         chain: ExternalChain,
@@ -136,15 +136,21 @@ module dechat_sui::like {
         let original_scenario = begin(profile_owner_address);
         let scenario = &mut original_scenario;
         {
-            let ctx = test_scenario::ctx(scenario);
-            let clock = clock::create_for_testing(ctx);            
+            let clock = clock::create_for_testing(test_scenario::ctx(scenario));            
             let message = utf8(b"hello world");
-            let post = get_new_post(profile_owner_address, clock::timestamp_ms(&clock), message, ctx);
-                        
-            create_like(&clock, &post, ctx);
+            create_post(&clock, message, test_scenario::ctx(scenario));
+                                 
+            clock::destroy_for_testing(clock);
+        };
+
+        next_tx(scenario, profile_owner_address);
+        {
+            let clock = clock::create_for_testing(test_scenario::ctx(scenario));   
+            let post = test::take_shared<Post>(scenario);
+            create_like(&clock, &post, test_scenario::ctx(scenario));
 
             clock::destroy_for_testing(clock);
-            transfer::public_transfer(post, profile_owner_address);
+            test::return_shared(post);
         };
 
         next_tx(scenario, profile_owner_address);
@@ -166,19 +172,25 @@ module dechat_sui::like {
         use sui::test_utils::assert_eq;
 
         let profile_owner_address = @0xCAFE;
-
+        
         let original_scenario = begin(profile_owner_address);
         let scenario = &mut original_scenario;
-        {
-            let ctx = test_scenario::ctx(scenario);
-            let clock = clock::create_for_testing(ctx);            
+        {                      
+            let clock = clock::create_for_testing(test_scenario::ctx(scenario));  
             let message = utf8(b"hello world");
-            let post = get_new_post(profile_owner_address, clock::timestamp_ms(&clock), message, ctx);
-                        
-            create_dislike(&clock, &post, ctx);
+            create_post(&clock, message, test_scenario::ctx(scenario));
 
-            clock::destroy_for_testing(clock);
-            transfer::public_transfer(post, profile_owner_address);
+            clock::destroy_for_testing(clock); 
+        };
+
+        next_tx(scenario, profile_owner_address);
+        {
+            let clock = clock::create_for_testing(test_scenario::ctx(scenario));  
+            let post = test::take_shared<Post>(scenario);
+            create_dislike(&clock, &post, test_scenario::ctx(scenario));
+
+            test::return_shared(post);
+            clock::destroy_for_testing(clock);            
         };
 
         next_tx(scenario, profile_owner_address);

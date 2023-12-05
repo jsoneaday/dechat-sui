@@ -14,7 +14,7 @@ module dechat_sui::profile {
         color: String
     }
 
-    struct Profile has key, store {
+    struct Profile has key {
         id: UID,
         owner: address,
         user_name: String,
@@ -25,19 +25,6 @@ module dechat_sui::profile {
 
     struct CreateProfileEvent has copy, drop {
         profile_id: ID
-    }
-
-    public(friend) fun get_new_profile(owner: address, user_name: String, full_name: String, description: Option<String>, ctx: &mut TxContext): Profile {
-        Profile {
-            id: object::new(ctx),
-            owner,
-            user_name,
-            full_name,
-            description,
-            profile_flag: ProfileFlag {
-                color: utf8(b"#ffffff")
-            }
-        }
     }
 
     public(friend) fun get_profile_owner(profile: &Profile): address {
